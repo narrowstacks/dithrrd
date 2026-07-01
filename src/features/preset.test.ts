@@ -40,4 +40,8 @@ describe('preset core', () => {
     const p = { v: 1, stack: [{ id: 'x', type: 'future-fx', enabled: true, params: {} }], palettes: [] }
     expect(parsePresetJson(JSON.stringify(p)).stack[0].type).toBe('future-fx')
   })
+  it('rejects a palette using a reserved id like __proto__', () => {
+    const p = { v: 1, stack: [], palettes: [{ id: '__proto__', name: 'x', colors: [[0, 0, 0]] }] }
+    expect(() => parsePresetJson(JSON.stringify(p))).toThrow()
+  })
 })

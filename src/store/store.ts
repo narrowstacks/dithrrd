@@ -176,7 +176,9 @@ export function createAppStore() {
     loadPreset: (preset) =>
       set((s) => {
         const palettes = { ...s.palettes }
-        for (const p of preset.palettes) palettes[p.id] = p
+        for (const p of preset.palettes) {
+          if (!(p.id in PALETTES)) palettes[p.id] = p
+        }
         const stack = preset.stack.map((n) => ({ ...n, params: { ...n.params } }))
         return { palettes, stack, selectedId: stack[0]?.id ?? null }
       }),

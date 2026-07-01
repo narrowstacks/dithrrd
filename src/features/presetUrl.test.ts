@@ -17,4 +17,15 @@ describe('presetUrl', () => {
   it('throws on a corrupt param', () => {
     expect(() => decodePresetParam('!!!not-base64!!!')).toThrow()
   })
+  it('encodes compact JSON (no newlines) while still round-tripping', () => {
+    const param = encodePresetParam(preset)
+    const b64 = param.replace(/-/g, '+').replace(/_/g, '/')
+    const bin = atob(b64)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    const decodedJsonString = new TextDecoder().decode(bytes)
+    expect(decodedJsonString).not.toContain('\n')
+    expect(JSON.parse(decodedJsonString)).toEqual(preset)
+    expect(decodePresetParam(param)).toEqual(preset)
+  })
 })

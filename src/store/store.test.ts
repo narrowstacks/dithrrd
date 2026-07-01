@@ -171,4 +171,13 @@ describe('app store — loadPreset', () => {
     s.getState().updateParam(s.getState().stack[0].id, 'levels', 8)
     expect(preset.stack[0].params.levels).toBe(3) // original untouched
   })
+  it('does not let a preset palette override a built-in palette', () => {
+    const s = createAppStore()
+    s.getState().loadPreset({
+      v: 1,
+      stack: [],
+      palettes: [{ id: 'bw', name: 'HACK', colors: [[1, 0, 0]] }],
+    })
+    expect(s.getState().palettes.bw.name).toBe('Black & White')
+  })
 })

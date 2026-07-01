@@ -44,6 +44,7 @@ function isStackNode(x: unknown): x is StackNode {
 function isPalette(x: unknown): x is Palette {
   if (typeof x !== 'object' || x === null) return false
   const p = x as Record<string, unknown>
+  if (typeof p.id === 'string' && (p.id === '__proto__' || p.id === 'constructor' || p.id === 'prototype')) return false
   return (
     typeof p.id === 'string' &&
     typeof p.name === 'string' &&

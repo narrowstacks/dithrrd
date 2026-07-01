@@ -1,5 +1,5 @@
 import type { Preset } from '@/features/preset'
-import { presetToJson, parsePresetJson } from '@/features/preset'
+import { parsePresetJson } from '@/features/preset'
 
 function bytesToBase64Url(bytes: Uint8Array): string {
   let bin = ''
@@ -16,7 +16,7 @@ function base64UrlToBytes(s: string): Uint8Array {
 }
 
 export function encodePresetParam(preset: Preset): string {
-  return bytesToBase64Url(new TextEncoder().encode(presetToJson(preset)))
+  return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(preset)))
 }
 
 export function decodePresetParam(param: string): Preset {
