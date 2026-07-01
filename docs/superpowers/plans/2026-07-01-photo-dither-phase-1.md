@@ -634,9 +634,10 @@ describe('floydSteinberg', () => {
   })
 
   it('diffuses error to the neighbor to the right', () => {
-    // Two mid-gray pixels in a row. First rounds to 0 (err +128 -> mostly right),
-    // pushing the right pixel brighter so it rounds to 255.
-    const buf = new Uint8ClampedArray([128, 128, 128, 255, 128, 128, 128, 255])
+    // Two gray pixels just below the 127.5 rounding midpoint. The first rounds
+    // to 0 (err +127 -> mostly right), pushing the right pixel brighter so it
+    // rounds to 255. (127 not 128: 128/255 rounds UP to white, which would invert this.)
+    const buf = new Uint8ClampedArray([127, 127, 127, 255, 127, 127, 127, 255])
     floydSteinberg(buf, 2, 1, { levels: 2, serpentine: false })
     expect(buf[0]).toBe(0)
     expect(buf[4]).toBe(255)
@@ -744,26 +745,44 @@ export type RunCpu = (
 export function createRunCpu(): { runCpu: RunCpu; dispose: () => void } {
   const worker = new Worker(new URL('./dither.worker.ts', import.meta.url), { type: 'module' })
   let nextId = 1
-  const pending = new Map<number, (buf: Uint8ClampedArray) => void>()
+  const pending = new Map<
+    number,
+    { resolve: (b: Uint8ClampedArray) => void; reject: (e: unknown) => void }
+  >()
 
   worker.onmessage = (e: MessageEvent<{ id: number; buf: ArrayBuffer }>) => {
-    const resolve = pending.get(e.data.id)
-    if (resolve) {
+    const entry = pending.get(e.data.id)
+    if (entry) {
       pending.delete(e.data.id)
-      resolve(new Uint8ClampedArray(e.data.buf))
+      entry.resolve(new Uint8ClampedArray(e.data.buf))
     }
   }
 
+  // Reject every in-flight request rather than hanging forever on a worker crash.
+  worker.onerror = (e) => {
+    const err = new Error(`dither worker error: ${e.message}`)
+    for (const { reject } of pending.values()) reject(err)
+    pending.clear()
+  }
+
   const runCpu: RunCpu = (type, buf, width, height, params) =>
-    new Promise((resolve) => {
+    new Promise((resolve, reject) => {
       const id = nextId++
-      pending.set(id, resolve)
+      pending.set(id, { resolve, reject })
       // Copy so the caller's buffer isn't detached by transfer.
       const copy = buf.slice()
       worker.postMessage({ id, type, buf: copy.buffer, width, height, params }, [copy.buffer])
     })
 
-  return { runCpu, dispose: () => worker.terminate() }
+  return {
+    runCpu,
+    dispose: () => {
+      const err = new Error('dither worker disposed')
+      for (const { reject } of pending.values()) reject(err)
+      pending.clear()
+      worker.terminate()
+    },
+  }
 }
 ```
 
@@ -832,7 +851,7 @@ git commit -m "feat: add CPU error diffusion, worker client, and Floyd-Steinberg
   - `interface PassStep { node: StackNode; effect: Effect }`.
   - `planPasses(stack: StackNode[], reg: Record<string, Effect>): PassStep[]`.
   - `interface Backend` (methods below) and `interface TexHandle`, `interface FboHandle`.
-  - `execute(steps: PassStep[], backend: Backend, opts: { runCpu: RunCpu; palettes: Record<string, Palette> }): Promise<void>`.
+  - `execute(steps: PassStep[], backend: Backend, opts: { runCpu: RunCpu; palettes: Record<string, Palette> }): Promise<TexHandle>` — runs the stack and RETURNS the final texture handle. It does NOT present; the caller decides to `backend.present(tex)` (preview) or `backend.readback(tex)` (export). This single loop is shared by both preview and export — no duplication.
   - `createReglBackend(canvas: HTMLCanvasElement, source: ImageData, width, height): Backend & { dispose(): void }`.
   - `QUAD_VERT: string`, `quadCommand(regl, frag, uniformKeys)`.
 
@@ -957,14 +976,15 @@ function fakeBackend() {
 }
 
 describe('execute', () => {
-  it('ping-pongs GPU passes and presents the final texture', async () => {
+  it('ping-pongs GPU passes and returns the final texture (without presenting)', async () => {
     const steps: PassStep[] = [
       { node: { id: '1', type: 'a', enabled: true, params: {} }, effect: gpu('a') },
       { node: { id: '2', type: 'b', enabled: true, params: {} }, effect: gpu('b') },
     ]
     const { backend, log } = fakeBackend()
-    await execute(steps, backend, { runCpu: async (_t, b) => b, palettes: {} })
-    expect(log).toEqual(['draw:a->ping', 'draw:b->pong', 'present:pong'])
+    const final = await execute(steps, backend, { runCpu: async (_t, b) => b, palettes: {} })
+    expect(log).toEqual(['draw:a->ping', 'draw:b->pong'])
+    expect((final as unknown as { __tex: string }).__tex).toBe('pong')
   })
 
   it('routes CPU effects through readback + runCpu + uploadPixels', async () => {
@@ -974,15 +994,17 @@ describe('execute', () => {
     ]
     const { backend, log } = fakeBackend()
     const runCpu = vi.fn(async (_t: string, b: Uint8ClampedArray) => b)
-    await execute(steps, backend, { runCpu, palettes: {} })
+    const final = await execute(steps, backend, { runCpu, palettes: {} })
     expect(runCpu).toHaveBeenCalledOnce()
-    expect(log).toEqual(['draw:a->ping', 'present:uploaded'])
+    expect(log).toEqual(['draw:a->ping'])
+    expect((final as unknown as { __tex: string }).__tex).toBe('uploaded')
   })
 
-  it('presents the source untouched when the stack is empty', async () => {
+  it('returns the source texture untouched when the stack is empty', async () => {
     const { backend, log } = fakeBackend()
-    await execute([], backend, { runCpu: async (_t, b) => b, palettes: {} })
-    expect(log).toEqual(['present:src'])
+    const final = await execute([], backend, { runCpu: async (_t, b) => b, palettes: {} })
+    expect(log).toEqual([])
+    expect((final as unknown as { __tex: string }).__tex).toBe('src')
   })
 })
 ```
@@ -1027,12 +1049,13 @@ import type { Backend } from '@/engine/backend'
 import type { PassStep } from '@/engine/planPasses'
 import type { Palette } from '@/effects/types'
 import type { RunCpu } from '@/worker/runCpu'
+import type { TexHandle } from '@/engine/backend'
 
 export async function execute(
   steps: PassStep[],
   backend: Backend,
   opts: { runCpu: RunCpu; palettes: Record<string, Palette> },
-): Promise<void> {
+): Promise<TexHandle> {
   let current = backend.sourceTexture()
   const ping = backend.acquireFbo()
   const pong = backend.acquireFbo()
@@ -1056,7 +1079,8 @@ export async function execute(
     }
   }
 
-  backend.present(current)
+  // Does NOT present. Caller presents (preview) or reads back (export).
+  return current
 }
 ```
 
@@ -1120,11 +1144,14 @@ export function createReglBackend(
   width: number,
   height: number,
 ): Backend & { dispose(): void } {
-  const regl: Regl = createREGL({
-    canvas,
-    attributes: { preserveDrawingBuffer: true },
-    extensions: [],
-  })
+  // Must obtain a WebGL2 context explicitly: regl, given only `canvas`, requests
+  // `webgl`/`experimental-webgl` (WebGL1), which cannot compile our `#version 300 es`
+  // shaders. Create the webgl2 context and pass it as `gl` (regl uses a supplied gl
+  // verbatim and then ignores the `attributes` option — so preserveDrawingBuffer must
+  // go on getContext).
+  const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true })
+  if (!gl) throw new Error('WebGL2 not supported')
+  const regl: Regl = createREGL({ gl: gl as unknown as WebGLRenderingContext, extensions: [] })
 
   const sourceTex = regl.texture({ data: source, flipY: true, min: 'linear', mag: 'linear' })
 
@@ -1135,6 +1162,10 @@ export function createReglBackend(
     })
   const pool = [makeFbo(), makeFbo()]
   let acquired = 0
+  // The texture produced by the most recent CPU step (uploadPixels). Destroyed when the
+  // next upload replaces it, so repeated renders with CPU effects don't leak GPU textures.
+  // The current one stays alive through present/readback; regl.destroy() frees the last.
+  let lastUploaded: Texture2D | null = null
 
   const wrapTex = (t: Texture2D): TexHandle => ({ t } as unknown as TexHandle)
   const wrapFbo = (fb: Framebuffer2D, tex: TexHandle): FboHandle =>
@@ -1168,14 +1199,22 @@ void main() { fragColor = texture(src, vUv); }`, [])
     },
     fboTexture: (fbo) => (fbo as unknown as { tex: TexHandle }).tex,
     readback: (tex) => {
-      // Find the fbo whose color texture is this handle; read its pixels.
-      const t = rawTex(tex)
-      const fb = pool.find((f) => (f.color[0] as Texture2D) === t)
+      // Wrap ANY texture (pool fbo texture, uploadPixels result, or source) in a
+      // temporary framebuffer and read it. This works regardless of whether the
+      // texture came from the ping/pong pool — critical for exporting a stack whose
+      // final effect is CPU (e.g. Floyd–Steinberg), whose result is an uploadPixels
+      // texture that is not in the pool.
+      const fb = regl.framebuffer({ color: rawTex(tex), depth: false })
       const data = regl.read({ framebuffer: fb }) as Uint8Array
-      return { data: new Uint8ClampedArray(data.buffer), width, height }
+      const out = new Uint8ClampedArray(data)
+      fb.destroy()
+      return { data: out, width, height }
     },
-    uploadPixels: (data, w, h) =>
-      wrapTex(regl.texture({ data, width: w, height: h, min: 'nearest', mag: 'nearest' })),
+    uploadPixels: (data, w, h) => {
+      lastUploaded?.destroy()
+      lastUploaded = regl.texture({ data, width: w, height: h, min: 'nearest', mag: 'nearest' })
+      return wrapTex(lastUploaded)
+    },
     present: (tex) => {
       regl.clear({ color: [0, 0, 0, 0], depth: 1 })
       present({ framebuffer: null, src: rawTex(tex), resolution: [width, height] })
@@ -1185,7 +1224,7 @@ void main() { fragColor = texture(src, vUv); }`, [])
 }
 ```
 
-> Manual verification for the regl backend happens end-to-end in Task 13 (viewport). There is no headless WebGL2 in Vitest, so `createReglBackend` is intentionally excluded from unit tests; the orchestration it serves (`execute`) is fully covered with a fake backend above. NOTE for the implementer: when `readback` is called after a CPU node, `current` points at the most recent GPU fbo's texture; the source texture (never in the pool) is only read back if a CPU effect is the very first node — in that case `fb` is `undefined` and `regl.read` reads the default framebuffer, which is acceptable for Phase 1 (a CPU-first stack is an unusual ordering). Revisit if it causes artifacts.
+> Manual verification for the regl backend happens end-to-end in Task 13 (viewport). There is no headless WebGL2 in Vitest, so `createReglBackend` is intentionally excluded from unit tests; the orchestration it serves (`execute`) is fully covered with a fake backend above. `readback` wraps whatever texture it is given in a throwaway framebuffer, so it reads the correct pixels for GPU fbo textures, `uploadPixels` results (CPU output), and the source texture alike — including CPU-first stacks and stacks ending in a CPU effect.
 
 - [ ] **Step 10: Run all tests + build**
 
@@ -1641,7 +1680,7 @@ git commit -m "feat: add circular halftone effect"
 
 **Interfaces:**
 - Consumes: `GpuEffect`, `EffectContext`, `PALETTES` (Tasks 3).
-- Produces: `paletteEffect: GpuEffect`, `type: 'palette'`. `uniforms()` returns `{ uPalette: number[48], uCount: number }`, reading `ctx.palettes[params.paletteId]`.
+- Produces: `paletteEffect: GpuEffect`, `type: 'palette'`. `uniforms()` returns individual keys `uP0`..`uP15` (each an `[r,g,b]` vec3, unused slots black) plus `uCount`, reading `ctx.palettes[params.paletteId]`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1656,13 +1695,13 @@ describe('palette effect', () => {
     const u = paletteEffect.uniforms(paletteEffect.defaultParams, { palettes: PALETTES })
     expect(Object.keys(u).sort()).toEqual([...paletteEffect.uniformKeys].sort())
   })
-  it('flattens the selected palette into a 48-length array with a count', () => {
-    const u = paletteEffect.uniforms({ paletteId: 'bw' }, { palettes: PALETTES }) as {
-      uPalette: number[]; uCount: number
-    }
+  it('emits one vec3 per palette slot (bw: black, white, then padding) with a count', () => {
+    const u = paletteEffect.uniforms({ paletteId: 'bw' }, { palettes: PALETTES }) as Record<string, unknown>
     expect(u.uCount).toBe(2)
-    expect(u.uPalette).toHaveLength(48)
-    expect(u.uPalette.slice(0, 6)).toEqual([0, 0, 0, 1, 1, 1])
+    expect(u.uP0).toEqual([0, 0, 0]) // black
+    expect(u.uP1).toEqual([1, 1, 1]) // white
+    expect(u.uP2).toEqual([0, 0, 0]) // unused slot padded
+    expect(u.uP15).toEqual([0, 0, 0])
   })
   it('falls back to bw when the palette id is unknown', () => {
     const u = paletteEffect.uniforms({ paletteId: 'nope' }, { palettes: PALETTES }) as { uCount: number }
@@ -1685,33 +1724,40 @@ import { PALETTES } from '@/color/palettes'
 
 const MAX = 16
 
+// regl binds array uniforms (`vec3 uPalette[16]`) unreliably (verified in-browser: the
+// pass produced no output). Individual named vec3 uniforms bind reliably — the same path
+// every other effect uses. So declare uP0..uP15 explicitly and pick nearest via an
+// unrolled comparison guarded by uCount.
 const FRAG = `#version 300 es
 precision highp float;
 in vec2 vUv; out vec4 fragColor;
 uniform sampler2D src; uniform vec2 resolution;
-uniform vec3 uPalette[${MAX}];
+uniform vec3 uP0; uniform vec3 uP1; uniform vec3 uP2; uniform vec3 uP3;
+uniform vec3 uP4; uniform vec3 uP5; uniform vec3 uP6; uniform vec3 uP7;
+uniform vec3 uP8; uniform vec3 uP9; uniform vec3 uP10; uniform vec3 uP11;
+uniform vec3 uP12; uniform vec3 uP13; uniform vec3 uP14; uniform vec3 uP15;
 uniform int uCount;
 void main() {
   vec3 c = texture(src, vUv).rgb;
   float best = 1e9; vec3 pick = c;
-  for (int i = 0; i < ${MAX}; i++) {
-    if (i >= uCount) break;
-    vec3 d = c - uPalette[i];
-    float dist = dot(d, d);
-    if (dist < best) { best = dist; pick = uPalette[i]; }
-  }
+  #define CONSIDER(IDX, U) if (IDX < uCount) { vec3 d = c - U; float dd = dot(d, d); if (dd < best) { best = dd; pick = U; } }
+  CONSIDER(0, uP0) CONSIDER(1, uP1) CONSIDER(2, uP2) CONSIDER(3, uP3)
+  CONSIDER(4, uP4) CONSIDER(5, uP5) CONSIDER(6, uP6) CONSIDER(7, uP7)
+  CONSIDER(8, uP8) CONSIDER(9, uP9) CONSIDER(10, uP10) CONSIDER(11, uP11)
+  CONSIDER(12, uP12) CONSIDER(13, uP13) CONSIDER(14, uP14) CONSIDER(15, uP15)
+  #undef CONSIDER
   fragColor = vec4(pick, 1.0);
 }`
 
-function flatten(palette: Palette): { uPalette: number[]; uCount: number } {
-  const out = new Array(MAX * 3).fill(0)
-  const n = Math.min(palette.colors.length, MAX)
-  for (let i = 0; i < n; i++) {
-    out[i * 3] = palette.colors[i][0]
-    out[i * 3 + 1] = palette.colors[i][1]
-    out[i * 3 + 2] = palette.colors[i][2]
+const PALETTE_KEYS = Array.from({ length: MAX }, (_, i) => `uP${i}`)
+
+function paletteUniforms(palette: Palette): Record<string, unknown> {
+  const u: Record<string, unknown> = { uCount: Math.min(palette.colors.length, MAX) }
+  for (let i = 0; i < MAX; i++) {
+    const c = palette.colors[i]
+    u[`uP${i}`] = c ? [c[0], c[1], c[2]] : [0, 0, 0]
   }
-  return { uPalette: out, uCount: n }
+  return u
 }
 
 export const paletteEffect: GpuEffect = {
@@ -1724,10 +1770,10 @@ export const paletteEffect: GpuEffect = {
     { type: 'palette', key: 'paletteId', label: 'Palette' },
   ],
   frag: FRAG,
-  uniformKeys: ['uPalette', 'uCount'],
+  uniformKeys: [...PALETTE_KEYS, 'uCount'],
   uniforms: (p, ctx) => {
     const palette = ctx.palettes[String(p.paletteId)] ?? PALETTES.bw
-    return flatten(palette)
+    return paletteUniforms(palette)
   },
 }
 ```
@@ -1744,7 +1790,7 @@ export const EFFECT_LIST: Effect[] = [grade, pixelate, bayer, halftone, paletteE
 Run: `pnpm test src/effects/palette.test.ts src/effects/registry.test.ts`
 Expected: PASS.
 
-> Implementer note: `uPalette` is set as a single flat `number[]` of length 48. regl uploads array uniforms via the base name. If regl rejects the flat array for `vec3 uPalette[16]`, set each element individually in `quadCommand` by expanding `uPalette` into `uPalette[0..15]` props — but try the flat array first.
+> Implementer note: the palette is passed as 16 individual `vec3` uniforms (`uP0`..`uP15`), NOT a GLSL array. regl was verified in-browser to bind `vec3 uPalette[16]` array uniforms unreliably (the pass produced no output); individual named uniforms use the same reliable path as every other effect. The nearest-color search is unrolled with a `CONSIDER` macro guarded by `uCount`.
 
 - [ ] **Step 5: Commit**
 
@@ -2237,6 +2283,9 @@ export function Viewport() {
   const backendRef = useRef<(Backend & { dispose(): void }) | null>(null)
   const cpuRef = useRef<ReturnType<typeof createRunCpu> | null>(null)
   const rafRef = useRef<number>(0)
+  // Monotonic render id. Guards against presenting a superseded/older render
+  // (out-of-order) or one whose backend was disposed on a source change.
+  const genRef = useRef(0)
 
   // (Re)create the backend when the source changes.
   useEffect(() => {
@@ -2270,8 +2319,19 @@ export function Viewport() {
       const backend = backendRef.current
       const cpu = cpuRef.current
       if (!backend || !cpu) return
+      const gen = ++genRef.current
       const steps = planPasses(stack, registry)
-      void execute(steps, backend, { runCpu: cpu.runCpu, palettes })
+      execute(steps, backend, { runCpu: cpu.runCpu, palettes })
+        .then((tex) => {
+          // Drop this frame if a newer render started (out-of-order) or the
+          // backend was swapped/disposed on a source change (stale closure).
+          if (gen !== genRef.current || backendRef.current !== backend) return
+          backend.present(tex)
+        })
+        .catch(() => {
+          // A superseded render can reject when its backend/worker is disposed
+          // mid-flight; that's expected — swallow so it isn't an unhandled rejection.
+        })
     })
     return () => cancelAnimationFrame(rafRef.current)
   }, [source, stack, palettes])
@@ -2665,7 +2725,7 @@ export function Control({ control, value, onChange }: ControlProps) {
             max={control.max}
             step={control.step}
             value={[Number(value)]}
-            onValueChange={([v]) => onChange(v)}
+            onValueChange={(v) => onChange((Array.isArray(v) ? v[0] : v) as number)}
           />
         </div>
       )
@@ -2676,7 +2736,7 @@ export function Control({ control, value, onChange }: ControlProps) {
             <Label className="text-xs">{control.label}</Label>
             <span className="tabular-nums text-xs text-muted-foreground">{Number(value)}°</span>
           </div>
-          <Slider min={0} max={360} step={1} value={[Number(value)]} onValueChange={([v]) => onChange(v)} />
+          <Slider min={0} max={360} step={1} value={[Number(value)]} onValueChange={(v) => onChange((Array.isArray(v) ? v[0] : v) as number)} />
         </div>
       )
     case 'toggle':
@@ -2878,29 +2938,8 @@ export async function exportCurrentPng(
   runCpu: RunCpu,
 ): Promise<void> {
   const steps = planPasses(stack, registry)
-  // Render the stack, but capture the final texture instead of presenting to screen.
-  let finalTex = backend.sourceTexture()
-  {
-    const ping = backend.acquireFbo()
-    const pong = backend.acquireFbo()
-    let target = ping
-    let current = backend.sourceTexture()
-    for (const step of steps) {
-      if (step.effect.kind === 'cpu') {
-        const { data, width, height } = backend.readback(current)
-        const out = await runCpu(step.effect.type, data, width, height, step.node.params)
-        current = backend.uploadPixels(out, width, height)
-      } else {
-        backend.drawEffect(step.effect, {
-          srcTex: current, targetFbo: target, params: step.node.params,
-          resolution: backend.size(), palettes,
-        })
-        current = backend.fboTexture(target)
-        target = target === ping ? pong : ping
-      }
-    }
-    finalTex = current
-  }
+  // Reuse the engine's render loop; execute() returns the final texture (does not present).
+  const finalTex = await execute(steps, backend, { runCpu, palettes })
 
   const [width, height] = backend.size()
   const { data } = backend.readback(finalTex)
@@ -2916,7 +2955,7 @@ export async function exportCurrentPng(
 }
 ```
 
-> Note: when the final node is GPU, `finalTex` is a pool fbo texture that `backend.readback` can locate. When the stack is empty or ends on a CPU node, `readback` handles the source/uploaded texture path (see Task 5 Step 9 note). `execute` is not reused here because export must capture the final texture rather than blit to screen; the loop mirrors it intentionally.
+> Note: `exportCurrentPng` shares the exact render loop used by the live preview — the only difference is preview calls `backend.present(finalTex)` while export calls `backend.readback(finalTex)`. When the final node is GPU, `finalTex` is a pool fbo texture `backend.readback` can locate; when the stack is empty or ends on a CPU node, `readback` handles the source/uploaded texture path (see Task 5 Step 9 note).
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -3044,6 +3083,6 @@ git commit -m "feat: add PNG export and error toasts"
 **3. Type consistency:** `StackNode` defined in Task 5, reused by store (Task 11), export (Task 16). `Backend`/`TexHandle`/`FboHandle` from Task 5 used consistently. `RunCpu` from Task 4 used by execute (5), viewport (13), export (16). Effect `uniforms()` returns keys matching `uniformKeys` — asserted by a test in each GPU effect task. `paletteEffect` export name (not `palette`) used consistently in Task 10 and registry. `EFFECT_LIST` order finalized as `[grade, pixelate, bayer, halftone, paletteEffect, floyd]`.
 
 **Known Phase-1 simplifications (documented, acceptable):**
-- CPU-first stacks: `readback` of the source texture reads the default framebuffer (Task 5 note). Unusual ordering; revisit if artifacts appear.
+- `readback` wraps any texture in a throwaway framebuffer, so CPU-first stacks and CPU-final stacks read correctly (no default-framebuffer fallback).
 - regl flat-array palette uniform: fallback to indexed props documented in Task 10.
 - Export renders at working resolution (≤4096 long edge), matching preview; multipliers deferred.
