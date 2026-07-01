@@ -17,6 +17,9 @@ ${paletteRampGlsl('rampAt')}
 void main() {
   vec4 s = texture(src, vUv);
   int n = max(uCount, 2);
+  // Luminance walks the ramp in palette-array order: luma 0 -> uP0 (shadow),
+  // luma 1 -> uP(n-1) (highlight). Author the palette dark->light for a
+  // conventional shadow->highlight ramp.
   float t = clamp(luma(s.rgb), 0.0, 1.0) * float(n - 1);
   int i0 = int(floor(t));
   i0 = clamp(i0, 0, n - 1);
