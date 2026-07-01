@@ -1,9 +1,11 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { type PanelImperativeHandle } from 'react-resizable-panels'
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from '@/components/ui/resizable'
+import { useStore } from '@/store/store'
 
 // Probe for WebGL2 support exactly once. This is called on every App render, and each
 // getContext('webgl2') would create a real (never-freed) WebGL context — after ~16 the
@@ -33,11 +35,33 @@ interface AppShellProps {
 }
 
 export function AppShell({ toolbar, stack, viewport, controls }: AppShellProps) {
+  const panels = useStore((s) => s.panels)
+  const setPanelCollapsed = useStore((s) => s.setPanelCollapsed)
+  const leftRef = useRef<PanelImperativeHandle>(null)
+  const rightRef = useRef<PanelImperativeHandle>(null)
+
+  // Drive the panels imperatively from store state.
+  useEffect(() => {
+    const l = leftRef.current
+    if (l) panels.left ? l.collapse() : l.expand()
+  }, [panels.left])
+  useEffect(() => {
+    const r = rightRef.current
+    if (r) panels.right ? r.collapse() : r.expand()
+  }, [panels.right])
+
   return (
     <div className="flex h-full flex-col">
       {toolbar}
       <ResizablePanelGroup orientation="horizontal" className="flex-1">
-        <ResizablePanel defaultSize={20} minSize={14}>
+        <ResizablePanel
+          panelRef={leftRef}
+          collapsible
+          collapsedSize={0}
+          defaultSize={panels.left ? 0 : 20}
+          minSize={14}
+          onResize={(size) => setPanelCollapsed('left', size.asPercentage <= 0)}
+        >
           <div data-testid="stack-region" className="h-full overflow-hidden border-r">
             {stack}
           </div>
@@ -49,7 +73,14 @@ export function AppShell({ toolbar, stack, viewport, controls }: AppShellProps) 
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={24} minSize={16}>
+        <ResizablePanel
+          panelRef={rightRef}
+          collapsible
+          collapsedSize={0}
+          defaultSize={panels.right ? 0 : 24}
+          minSize={16}
+          onResize={(size) => setPanelCollapsed('right', size.asPercentage <= 0)}
+        >
           <div data-testid="controls-region" className="h-full overflow-hidden border-l">
             {controls}
           </div>
