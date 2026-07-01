@@ -832,7 +832,7 @@ git commit -m "feat: add CPU error diffusion, worker client, and Floyd-Steinberg
   - `interface PassStep { node: StackNode; effect: Effect }`.
   - `planPasses(stack: StackNode[], reg: Record<string, Effect>): PassStep[]`.
   - `interface Backend` (methods below) and `interface TexHandle`, `interface FboHandle`.
-  - `execute(steps: PassStep[], backend: Backend, opts: { runCpu: RunCpu; palettes: Record<string, Palette> }): Promise<void>`.
+  - `execute(steps: PassStep[], backend: Backend, opts: { runCpu: RunCpu; palettes: Record<string, Palette> }): Promise<TexHandle>` — runs the stack and RETURNS the final texture handle. It does NOT present; the caller decides to `backend.present(tex)` (preview) or `backend.readback(tex)` (export). This single loop is shared by both preview and export — no duplication.
   - `createReglBackend(canvas: HTMLCanvasElement, source: ImageData, width, height): Backend & { dispose(): void }`.
   - `QUAD_VERT: string`, `quadCommand(regl, frag, uniformKeys)`.
 
@@ -957,14 +957,15 @@ function fakeBackend() {
 }
 
 describe('execute', () => {
-  it('ping-pongs GPU passes and presents the final texture', async () => {
+  it('ping-pongs GPU passes and returns the final texture (without presenting)', async () => {
     const steps: PassStep[] = [
       { node: { id: '1', type: 'a', enabled: true, params: {} }, effect: gpu('a') },
       { node: { id: '2', type: 'b', enabled: true, params: {} }, effect: gpu('b') },
     ]
     const { backend, log } = fakeBackend()
-    await execute(steps, backend, { runCpu: async (_t, b) => b, palettes: {} })
-    expect(log).toEqual(['draw:a->ping', 'draw:b->pong', 'present:pong'])
+    const final = await execute(steps, backend, { runCpu: async (_t, b) => b, palettes: {} })
+    expect(log).toEqual(['draw:a->ping', 'draw:b->pong'])
+    expect((final as unknown as { __tex: string }).__tex).toBe('pong')
   })
 
   it('routes CPU effects through readback + runCpu + uploadPixels', async () => {
@@ -974,15 +975,17 @@ describe('execute', () => {
     ]
     const { backend, log } = fakeBackend()
     const runCpu = vi.fn(async (_t: string, b: Uint8ClampedArray) => b)
-    await execute(steps, backend, { runCpu, palettes: {} })
+    const final = await execute(steps, backend, { runCpu, palettes: {} })
     expect(runCpu).toHaveBeenCalledOnce()
-    expect(log).toEqual(['draw:a->ping', 'present:uploaded'])
+    expect(log).toEqual(['draw:a->ping'])
+    expect((final as unknown as { __tex: string }).__tex).toBe('uploaded')
   })
 
-  it('presents the source untouched when the stack is empty', async () => {
+  it('returns the source texture untouched when the stack is empty', async () => {
     const { backend, log } = fakeBackend()
-    await execute([], backend, { runCpu: async (_t, b) => b, palettes: {} })
-    expect(log).toEqual(['present:src'])
+    const final = await execute([], backend, { runCpu: async (_t, b) => b, palettes: {} })
+    expect(log).toEqual([])
+    expect((final as unknown as { __tex: string }).__tex).toBe('src')
   })
 })
 ```
@@ -1027,12 +1030,13 @@ import type { Backend } from '@/engine/backend'
 import type { PassStep } from '@/engine/planPasses'
 import type { Palette } from '@/effects/types'
 import type { RunCpu } from '@/worker/runCpu'
+import type { TexHandle } from '@/engine/backend'
 
 export async function execute(
   steps: PassStep[],
   backend: Backend,
   opts: { runCpu: RunCpu; palettes: Record<string, Palette> },
-): Promise<void> {
+): Promise<TexHandle> {
   let current = backend.sourceTexture()
   const ping = backend.acquireFbo()
   const pong = backend.acquireFbo()
@@ -1056,7 +1060,8 @@ export async function execute(
     }
   }
 
-  backend.present(current)
+  // Does NOT present. Caller presents (preview) or reads back (export).
+  return current
 }
 ```
 
@@ -2271,7 +2276,9 @@ export function Viewport() {
       const cpu = cpuRef.current
       if (!backend || !cpu) return
       const steps = planPasses(stack, registry)
-      void execute(steps, backend, { runCpu: cpu.runCpu, palettes })
+      void execute(steps, backend, { runCpu: cpu.runCpu, palettes }).then((tex) =>
+        backend.present(tex),
+      )
     })
     return () => cancelAnimationFrame(rafRef.current)
   }, [source, stack, palettes])
@@ -2878,29 +2885,8 @@ export async function exportCurrentPng(
   runCpu: RunCpu,
 ): Promise<void> {
   const steps = planPasses(stack, registry)
-  // Render the stack, but capture the final texture instead of presenting to screen.
-  let finalTex = backend.sourceTexture()
-  {
-    const ping = backend.acquireFbo()
-    const pong = backend.acquireFbo()
-    let target = ping
-    let current = backend.sourceTexture()
-    for (const step of steps) {
-      if (step.effect.kind === 'cpu') {
-        const { data, width, height } = backend.readback(current)
-        const out = await runCpu(step.effect.type, data, width, height, step.node.params)
-        current = backend.uploadPixels(out, width, height)
-      } else {
-        backend.drawEffect(step.effect, {
-          srcTex: current, targetFbo: target, params: step.node.params,
-          resolution: backend.size(), palettes,
-        })
-        current = backend.fboTexture(target)
-        target = target === ping ? pong : ping
-      }
-    }
-    finalTex = current
-  }
+  // Reuse the engine's render loop; execute() returns the final texture (does not present).
+  const finalTex = await execute(steps, backend, { runCpu, palettes })
 
   const [width, height] = backend.size()
   const { data } = backend.readback(finalTex)
@@ -2916,7 +2902,7 @@ export async function exportCurrentPng(
 }
 ```
 
-> Note: when the final node is GPU, `finalTex` is a pool fbo texture that `backend.readback` can locate. When the stack is empty or ends on a CPU node, `readback` handles the source/uploaded texture path (see Task 5 Step 9 note). `execute` is not reused here because export must capture the final texture rather than blit to screen; the loop mirrors it intentionally.
+> Note: `exportCurrentPng` shares the exact render loop used by the live preview — the only difference is preview calls `backend.present(finalTex)` while export calls `backend.readback(finalTex)`. When the final node is GPU, `finalTex` is a pool fbo texture `backend.readback` can locate; when the stack is empty or ends on a CPU node, `readback` handles the source/uploaded texture path (see Task 5 Step 9 note).
 
 - [ ] **Step 4: Run to verify pass**
 
