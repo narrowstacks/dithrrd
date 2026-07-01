@@ -2,6 +2,7 @@ import { createStore } from 'zustand/vanilla'
 import { useStore as useZustand } from 'zustand'
 import type { StackNode } from '@/engine/planPasses'
 import type { Palette, ParamValue } from '@/effects/types'
+import type { Preset } from '@/features/preset'
 import { registry } from '@/effects/registry'
 import { PALETTES } from '@/color/palettes'
 import { loadCustomPalettes, saveCustomPalettes } from '@/features/paletteStorage'
@@ -33,6 +34,7 @@ export interface AppState {
   startEyedropper: (paletteId: string, index: number) => void
   cancelEyedropper: () => void
   applyEyedropper: (rgb: [number, number, number]) => void
+  loadPreset: (preset: Preset) => void
 }
 
 const newId = () => crypto.randomUUID()
@@ -169,6 +171,16 @@ export function createAppStore() {
         if (!p) return { eyedropper: null }
         const colors = p.colors.map((c, j) => (j === t.index ? rgb : c))
         return { palettes: { ...s.palettes, [t.paletteId]: { ...p, colors } }, eyedropper: null }
+      }),
+
+    loadPreset: (preset) =>
+      set((s) => {
+        const palettes = { ...s.palettes }
+        for (const p of preset.palettes) {
+          if (!(p.id in PALETTES)) palettes[p.id] = p
+        }
+        const stack = preset.stack.map((n) => ({ ...n, params: { ...n.params } }))
+        return { palettes, stack, selectedId: stack[0]?.id ?? null }
       }),
   }))
 }

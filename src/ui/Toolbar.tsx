@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { PresetMenu } from '@/ui/PresetMenu'
 
 interface ToolbarProps {
   onUpload: (file: File) => void
@@ -30,6 +31,7 @@ export function Toolbar({ onUpload, onReset, onExport, canExport }: ToolbarProps
           </span>
         </label>
         <Button variant="ghost" onClick={onReset}>Reset</Button>
+        <PresetMenu />
         <Button onClick={onExport} disabled={!canExport}>Export PNG</Button>
       </div>
     </div>

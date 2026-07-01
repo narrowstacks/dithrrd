@@ -146,3 +146,38 @@ describe('app store — eyedropper', () => {
     expect(s.getState().palettes[id].colors[0]).toEqual([0, 0, 0])
   })
 })
+
+describe('app store — loadPreset', () => {
+  beforeEach(() => localStorage.clear())
+  it('replaces the stack and merges the preset palettes', () => {
+    const s = createAppStore()
+    s.getState().addNode('bayer') // pre-existing stack
+    s.getState().loadPreset({
+      v: 1,
+      stack: [{ id: 'p1', type: 'duotone', enabled: true, params: { paletteId: 'c1' } }],
+      palettes: [{ id: 'c1', name: 'Mine', colors: [[1, 0, 0], [0, 0, 1]] }],
+    })
+    const st = s.getState()
+    expect(st.stack).toHaveLength(1)
+    expect(st.stack[0].type).toBe('duotone')
+    expect(st.selectedId).toBe(st.stack[0].id)
+    expect(st.palettes.c1).toMatchObject({ name: 'Mine' })
+    expect(st.palettes.bw).toBeTruthy() // built-ins retained
+  })
+  it('clones the preset stack (no shared references)', () => {
+    const s = createAppStore()
+    const preset = { v: 1, stack: [{ id: 'p1', type: 'bayer', enabled: true, params: { levels: 3 } }], palettes: [] }
+    s.getState().loadPreset(preset)
+    s.getState().updateParam(s.getState().stack[0].id, 'levels', 8)
+    expect(preset.stack[0].params.levels).toBe(3) // original untouched
+  })
+  it('does not let a preset palette override a built-in palette', () => {
+    const s = createAppStore()
+    s.getState().loadPreset({
+      v: 1,
+      stack: [],
+      palettes: [{ id: 'bw', name: 'HACK', colors: [[1, 0, 0]] }],
+    })
+    expect(s.getState().palettes.bw.name).toBe('Black & White')
+  })
+})
