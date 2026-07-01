@@ -1,4 +1,20 @@
-import { ChevronDown, Copy, Trash2, ArrowUp, ArrowDown } from 'lucide-react'
+import { ChevronDown, Copy, Trash2, GripVertical } from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -14,6 +30,8 @@ import {
 import { useStore } from '@/store/store'
 import { EFFECT_LIST } from '@/effects/registry'
 import type { Family } from '@/effects/types'
+import type { StackNode } from '@/engine/planPasses'
+import { dragEndIndices } from '@/ui/sortable'
 
 const FAMILY_LABEL: Record<Family, string> = {
   color: 'Color',
@@ -24,6 +42,75 @@ const FAMILY_LABEL: Record<Family, string> = {
 }
 const FAMILY_ORDER: Family[] = ['color', 'pixelate', 'ordered', 'halftone', 'diffusion']
 
+interface StackRowProps {
+  node: StackNode
+  name: string
+  selected: boolean
+  onSelect: () => void
+  onToggle: () => void
+  onDuplicate: () => void
+  onRemove: () => void
+}
+
+function StackRow({ node, name, selected, onSelect, onToggle, onDuplicate, onRemove }: StackRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: node.id,
+  })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    // Lift the dragged row above its siblings.
+    zIndex: isDragging ? 1 : undefined,
+  }
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      onClick={onSelect}
+      className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-sm ${
+        selected ? 'border-primary bg-accent' : 'border-transparent hover:bg-accent/50'
+      } ${isDragging ? 'opacity-70 shadow-sm' : ''}`}
+    >
+      <button
+        aria-label="Drag to reorder"
+        className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+        onClick={(e) => e.stopPropagation()}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="size-3.5" />
+      </button>
+      <Switch
+        checked={node.enabled}
+        onCheckedChange={onToggle}
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Toggle effect"
+      />
+      <span className="flex-1 truncate">{name}</span>
+      <button
+        aria-label="Duplicate"
+        className="text-muted-foreground hover:text-foreground"
+        onClick={(e) => {
+          e.stopPropagation()
+          onDuplicate()
+        }}
+      >
+        <Copy className="size-3.5" />
+      </button>
+      <button
+        aria-label="Remove"
+        className="text-muted-foreground hover:text-destructive"
+        onClick={(e) => {
+          e.stopPropagation()
+          onRemove()
+        }}
+      >
+        <Trash2 className="size-3.5" />
+      </button>
+    </li>
+  )
+}
+
 export function StackPanel() {
   const stack = useStore((s) => s.stack)
   const selectedId = useStore((s) => s.selectedId)
@@ -33,6 +120,24 @@ export function StackPanel() {
   const reorderNode = useStore((s) => s.reorderNode)
   const duplicateNode = useStore((s) => s.duplicateNode)
   const selectNode = useStore((s) => s.selectNode)
+
+  const sensors = useSensors(
+    // A small activation distance lets a plain click on the handle still select/act
+    // without starting a drag.
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const onDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over) return
+    const move = dragEndIndices(
+      stack.map((n) => n.id),
+      String(active.id),
+      String(over.id),
+    )
+    if (move) reorderNode(move.from, move.to)
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -71,76 +176,33 @@ export function StackPanel() {
       </div>
 
       <ScrollArea className="flex-1">
-        <ul className="flex flex-col gap-1 p-2">
-          {stack.length === 0 && (
-            <li className="px-1 py-6 text-center text-xs text-muted-foreground">
-              No effects yet. Use “Add” to stack one.
-            </li>
-          )}
-          {stack.map((node, i) => {
-            const def = EFFECT_LIST.find((e) => e.type === node.type)
-            const isSelected = node.id === selectedId
-            return (
-              <li
-                key={node.id}
-                onClick={() => selectNode(node.id)}
-                className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm ${
-                  isSelected ? 'border-primary bg-accent' : 'border-transparent hover:bg-accent/50'
-                }`}
-              >
-                <Switch
-                  checked={node.enabled}
-                  onCheckedChange={() => toggleNode(node.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label="Toggle effect"
-                />
-                <span className="flex-1 truncate">{def?.name ?? node.type}</span>
-                <button
-                  aria-label="Move up"
-                  className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-                  disabled={i === 0}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    reorderNode(i, i - 1)
-                  }}
-                >
-                  <ArrowUp className="size-3.5" />
-                </button>
-                <button
-                  aria-label="Move down"
-                  className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-                  disabled={i === stack.length - 1}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    reorderNode(i, i + 1)
-                  }}
-                >
-                  <ArrowDown className="size-3.5" />
-                </button>
-                <button
-                  aria-label="Duplicate"
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    duplicateNode(node.id)
-                  }}
-                >
-                  <Copy className="size-3.5" />
-                </button>
-                <button
-                  aria-label="Remove"
-                  className="text-muted-foreground hover:text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    removeNode(node.id)
-                  }}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </li>
-            )
-          })}
-        </ul>
+        {stack.length === 0 ? (
+          <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+            No effects yet. Use “Add” to stack one.
+          </p>
+        ) : (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={stack.map((n) => n.id)} strategy={verticalListSortingStrategy}>
+              <ul className="flex flex-col gap-1 p-2">
+                {stack.map((node) => {
+                  const def = EFFECT_LIST.find((e) => e.type === node.type)
+                  return (
+                    <StackRow
+                      key={node.id}
+                      node={node}
+                      name={def?.name ?? node.type}
+                      selected={node.id === selectedId}
+                      onSelect={() => selectNode(node.id)}
+                      onToggle={() => toggleNode(node.id)}
+                      onDuplicate={() => duplicateNode(node.id)}
+                      onRemove={() => removeNode(node.id)}
+                    />
+                  )
+                })}
+              </ul>
+            </SortableContext>
+          </DndContext>
+        )}
       </ScrollArea>
     </div>
   )
