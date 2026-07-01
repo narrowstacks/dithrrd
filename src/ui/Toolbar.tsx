@@ -1,5 +1,7 @@
+import { Undo2, Redo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PresetMenu } from '@/ui/PresetMenu'
+import { useTemporal, appStore } from '@/store/store'
 
 interface ToolbarProps {
   onUpload: (file: File) => void
@@ -9,6 +11,9 @@ interface ToolbarProps {
 }
 
 export function Toolbar({ onUpload, onReset, onExport, canExport }: ToolbarProps) {
+  const canUndo = useTemporal((t) => t.pastStates.length > 0)
+  const canRedo = useTemporal((t) => t.futureStates.length > 0)
+
   return (
     <div className="flex h-12 items-center justify-between border-b px-3 text-sm">
       <div className="flex items-center gap-2">
@@ -31,6 +36,24 @@ export function Toolbar({ onUpload, onReset, onExport, canExport }: ToolbarProps
           </span>
         </label>
         <Button variant="ghost" onClick={onReset}>Reset</Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Undo"
+          disabled={!canUndo}
+          onClick={() => appStore.temporal.getState().undo()}
+        >
+          <Undo2 className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Redo"
+          disabled={!canRedo}
+          onClick={() => appStore.temporal.getState().redo()}
+        >
+          <Redo2 className="size-4" />
+        </Button>
         <PresetMenu />
         <Button onClick={onExport} disabled={!canExport}>Export PNG</Button>
       </div>
