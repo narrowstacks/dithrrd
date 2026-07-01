@@ -5,6 +5,7 @@ import type { TemporalState } from 'zundo'
 import type { StackNode } from '@/engine/planPasses'
 import type { Palette, ParamValue } from '@/effects/types'
 import type { Preset } from '@/features/preset'
+import { loadPanelPrefs, savePanelPrefs, type PanelPrefs } from '@/features/uiPrefs'
 import { registry } from '@/effects/registry'
 import { PALETTES } from '@/color/palettes'
 import { loadCustomPalettes, saveCustomPalettes } from '@/features/paletteStorage'
@@ -21,6 +22,9 @@ export interface AppState {
   selectedId: string | null
   palettes: Record<string, Palette>
   eyedropper: { paletteId: string; index: number } | null
+  panels: PanelPrefs
+  addMenuOpen: boolean
+  helpOpen: boolean
   setSource: (source: SourceImage) => void
   addNode: (type: string) => void
   removeNode: (id: string) => void
@@ -29,6 +33,10 @@ export interface AppState {
   duplicateNode: (id: string) => void
   updateParam: (id: string, key: string, value: ParamValue) => void
   selectNode: (id: string | null) => void
+  togglePanel: (side: 'left' | 'right') => void
+  setPanelCollapsed: (side: 'left' | 'right', collapsed: boolean) => void
+  setAddMenuOpen: (v: boolean) => void
+  setHelpOpen: (v: boolean) => void
   addPalette: () => string
   updatePalette: (id: string, patch: { name?: string; colors?: [number, number, number][] }) => void
   removePalette: (id: string) => void
@@ -65,6 +73,9 @@ export function createAppStore() {
     selectedId: null,
     palettes: loadInitialPalettes(),
     eyedropper: null,
+    panels: loadPanelPrefs(),
+    addMenuOpen: false,
+    helpOpen: false,
 
     setSource: (source) => set({ source }),
 
@@ -122,6 +133,13 @@ export function createAppStore() {
       })),
 
     selectNode: (id) => set({ selectedId: id }),
+
+    togglePanel: (side) =>
+      set((s) => ({ panels: { ...s.panels, [side]: !s.panels[side] } })),
+    setPanelCollapsed: (side, collapsed) =>
+      set((s) => ({ panels: { ...s.panels, [side]: collapsed } })),
+    setAddMenuOpen: (v) => set({ addMenuOpen: v }),
+    setHelpOpen: (v) => set({ helpOpen: v }),
 
     addPalette: () => {
       const id = newId()
@@ -225,6 +243,13 @@ appStore.subscribe((s) => {
   if (s.palettes === lastPalettes) return
   lastPalettes = s.palettes
   saveCustomPalettes(Object.values(s.palettes).filter((p) => !(p.id in PALETTES)))
+})
+
+let lastPanels = appStore.getState().panels
+appStore.subscribe((s) => {
+  if (s.panels === lastPanels) return
+  lastPanels = s.panels
+  savePanelPrefs(s.panels)
 })
 
 export const useStore = <T>(selector: (s: AppState) => T): T => useZustand(appStore, selector)

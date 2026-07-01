@@ -181,3 +181,22 @@ describe('app store — loadPreset', () => {
     expect(s.getState().palettes.bw.name).toBe('Black & White')
   })
 })
+
+describe('app store — UI state', () => {
+  it('toggles panel collapse state', () => {
+    const s = createAppStore()
+    expect(s.getState().panels.left).toBe(false)
+    s.getState().togglePanel('left')
+    expect(s.getState().panels.left).toBe(true)
+    s.getState().togglePanel('left')
+    expect(s.getState().panels.left).toBe(false)
+  })
+
+  it('opens and closes the add menu and help dialog', () => {
+    const s = createAppStore()
+    s.getState().setAddMenuOpen(true)
+    expect(s.getState().addMenuOpen).toBe(true)
+    s.getState().setHelpOpen(true)
+    expect(s.getState().helpOpen).toBe(true)
+  })
+})
