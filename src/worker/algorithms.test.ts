@@ -106,3 +106,20 @@ describe('jarvis kernel', () => {
     expect(white[0]).toBe(255)
   })
 })
+
+describe('stucki kernel', () => {
+  it('snaps a single mid-gray pixel to black or white at 2 levels', () => {
+    const buf = new Uint8ClampedArray([120, 120, 120, 255])
+    diffuse(buf, 1, 1, { levels: 2, serpentine: false }, KERNELS.stucki)
+    expect([0, 255]).toContain(buf[0])
+    expect(buf[3]).toBe(255)
+  })
+  it('leaves pure black and pure white unchanged', () => {
+    const black = new Uint8ClampedArray([0, 0, 0, 255])
+    diffuse(black, 1, 1, { levels: 2, serpentine: false }, KERNELS.stucki)
+    expect(black[0]).toBe(0)
+    const white = new Uint8ClampedArray([255, 255, 255, 255])
+    diffuse(white, 1, 1, { levels: 2, serpentine: false }, KERNELS.stucki)
+    expect(white[0]).toBe(255)
+  })
+})
