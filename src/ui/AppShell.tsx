@@ -5,13 +5,24 @@ import {
   ResizableHandle,
 } from '@/components/ui/resizable'
 
+// Probe for WebGL2 support exactly once. This is called on every App render, and each
+// getContext('webgl2') would create a real (never-freed) WebGL context — after ~16 the
+// browser evicts the live render context ("too many active WebGL contexts"), breaking
+// the preview. Cache the boolean and release the probe context immediately.
+let webgl2Supported: boolean | undefined
+
 export function hasWebGL2(): boolean {
-  try {
-    const c = document.createElement('canvas')
-    return !!c.getContext('webgl2')
-  } catch {
-    return false
+  if (webgl2Supported === undefined) {
+    try {
+      const c = document.createElement('canvas')
+      const gl = c.getContext('webgl2')
+      webgl2Supported = !!gl
+      gl?.getExtension('WEBGL_lose_context')?.loseContext()
+    } catch {
+      webgl2Supported = false
+    }
   }
+  return webgl2Supported
 }
 
 interface AppShellProps {
