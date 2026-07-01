@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { floydSteinberg } from '@/worker/algorithms'
+import { floydSteinberg, diffuse, KERNELS, type DiffusionKernel } from '@/worker/algorithms'
 
 function gray(v: number): Uint8ClampedArray {
   return new Uint8ClampedArray([v, v, v, 255])
@@ -32,5 +32,128 @@ describe('floydSteinberg', () => {
     floydSteinberg(buf, 2, 1, { levels: 2, serpentine: false })
     expect(buf[0]).toBe(0)
     expect(buf[4]).toBe(255)
+  })
+})
+
+const FS_KERNEL: DiffusionKernel = {
+  divisor: 16,
+  cells: [
+    { dx: 1, dy: 0, w: 7 },
+    { dx: -1, dy: 1, w: 3 },
+    { dx: 0, dy: 1, w: 5 },
+    { dx: 1, dy: 1, w: 1 },
+  ],
+}
+
+function ramp(w: number, h: number): Uint8ClampedArray {
+  const buf = new Uint8ClampedArray(w * h * 4)
+  for (let i = 0; i < w * h; i++) {
+    const v = (i * 37) % 256
+    buf[i * 4] = buf[i * 4 + 1] = buf[i * 4 + 2] = v
+    buf[i * 4 + 3] = 255
+  }
+  return buf
+}
+
+describe('diffuse (generic engine)', () => {
+  it('with the Floyd–Steinberg kernel matches floydSteinberg byte-for-byte', () => {
+    const w = 4, h = 4
+    const a = ramp(w, h)
+    const b = ramp(w, h)
+    floydSteinberg(a, w, h, { levels: 2, serpentine: true })
+    diffuse(b, w, h, { levels: 2, serpentine: true }, FS_KERNEL)
+    expect(Array.from(b)).toEqual(Array.from(a))
+  })
+
+  it('leaves alpha untouched', () => {
+    const buf = new Uint8ClampedArray([100, 100, 100, 128])
+    diffuse(buf, 1, 1, { levels: 2, serpentine: false }, KERNELS.atkinson)
+    expect(buf[3]).toBe(128)
+  })
+})
+
+describe('atkinson kernel', () => {
+  it('snaps a single mid-gray pixel to black or white at 2 levels', () => {
+    const buf = new Uint8ClampedArray([100, 100, 100, 255])
+    diffuse(buf, 1, 1, { levels: 2, serpentine: false }, KERNELS.atkinson)
+    expect([0, 255]).toContain(buf[0])
+    expect(buf[0]).toBe(buf[1])
+    expect(buf[3]).toBe(255)
+  })
+  it('leaves pure black and pure white unchanged at 2 levels', () => {
+    const black = new Uint8ClampedArray([0, 0, 0, 255])
+    diffuse(black, 1, 1, { levels: 2, serpentine: false }, KERNELS.atkinson)
+    expect(black[0]).toBe(0)
+    const white = new Uint8ClampedArray([255, 255, 255, 255])
+    diffuse(white, 1, 1, { levels: 2, serpentine: false }, KERNELS.atkinson)
+    expect(white[0]).toBe(255)
+  })
+})
+
+describe('jarvis kernel', () => {
+  it('snaps a single mid-gray pixel to black or white at 2 levels', () => {
+    const buf = new Uint8ClampedArray([120, 120, 120, 255])
+    diffuse(buf, 1, 1, { levels: 2, serpentine: false }, KERNELS.jarvis)
+    expect([0, 255]).toContain(buf[0])
+    expect(buf[3]).toBe(255)
+  })
+  it('leaves pure black and pure white unchanged', () => {
+    const black = new Uint8ClampedArray([0, 0, 0, 255])
+    diffuse(black, 1, 1, { levels: 2, serpentine: false }, KERNELS.jarvis)
+    expect(black[0]).toBe(0)
+    const white = new Uint8ClampedArray([255, 255, 255, 255])
+    diffuse(white, 1, 1, { levels: 2, serpentine: false }, KERNELS.jarvis)
+    expect(white[0]).toBe(255)
+  })
+})
+
+describe('stucki kernel', () => {
+  it('snaps a single mid-gray pixel to black or white at 2 levels', () => {
+    const buf = new Uint8ClampedArray([120, 120, 120, 255])
+    diffuse(buf, 1, 1, { levels: 2, serpentine: false }, KERNELS.stucki)
+    expect([0, 255]).toContain(buf[0])
+    expect(buf[3]).toBe(255)
+  })
+  it('leaves pure black and pure white unchanged', () => {
+    const black = new Uint8ClampedArray([0, 0, 0, 255])
+    diffuse(black, 1, 1, { levels: 2, serpentine: false }, KERNELS.stucki)
+    expect(black[0]).toBe(0)
+    const white = new Uint8ClampedArray([255, 255, 255, 255])
+    diffuse(white, 1, 1, { levels: 2, serpentine: false }, KERNELS.stucki)
+    expect(white[0]).toBe(255)
+  })
+})
+
+describe('sierra kernel', () => {
+  it('snaps a single mid-gray pixel to black or white at 2 levels', () => {
+    const buf = new Uint8ClampedArray([120, 120, 120, 255])
+    diffuse(buf, 1, 1, { levels: 2, serpentine: false }, KERNELS.sierra)
+    expect([0, 255]).toContain(buf[0])
+    expect(buf[3]).toBe(255)
+  })
+  it('leaves pure black and pure white unchanged', () => {
+    const black = new Uint8ClampedArray([0, 0, 0, 255])
+    diffuse(black, 1, 1, { levels: 2, serpentine: false }, KERNELS.sierra)
+    expect(black[0]).toBe(0)
+    const white = new Uint8ClampedArray([255, 255, 255, 255])
+    diffuse(white, 1, 1, { levels: 2, serpentine: false }, KERNELS.sierra)
+    expect(white[0]).toBe(255)
+  })
+})
+
+describe('burkes kernel', () => {
+  it('snaps a single mid-gray pixel to black or white at 2 levels', () => {
+    const buf = new Uint8ClampedArray([120, 120, 120, 255])
+    diffuse(buf, 1, 1, { levels: 2, serpentine: false }, KERNELS.burkes)
+    expect([0, 255]).toContain(buf[0])
+    expect(buf[3]).toBe(255)
+  })
+  it('leaves pure black and pure white unchanged', () => {
+    const black = new Uint8ClampedArray([0, 0, 0, 255])
+    diffuse(black, 1, 1, { levels: 2, serpentine: false }, KERNELS.burkes)
+    expect(black[0]).toBe(0)
+    const white = new Uint8ClampedArray([255, 255, 255, 255])
+    diffuse(white, 1, 1, { levels: 2, serpentine: false }, KERNELS.burkes)
+    expect(white[0]).toBe(255)
   })
 })
