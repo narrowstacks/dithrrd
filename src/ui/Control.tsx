@@ -5,7 +5,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import type { Control as ControlSchema, ParamValue } from '@/effects/types'
-import { PALETTES } from '@/color/palettes'
+import { PaletteControl } from '@/ui/PaletteControl'
 
 interface ControlProps {
   control: ControlSchema
@@ -70,17 +70,11 @@ export function Control({ control, value, onChange }: ControlProps) {
       )
     case 'palette':
       return (
-        <div className="space-y-1.5">
-          <Label className="text-xs">{control.label}</Label>
-          <Select value={String(value)} onValueChange={(v) => onChange(v as string)}>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {Object.values(PALETTES).map((p) => (
-                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <PaletteControl
+          label={control.label}
+          value={String(value)}
+          onChange={(v) => onChange(v)}
+        />
       )
   }
 }
