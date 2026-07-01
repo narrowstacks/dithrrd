@@ -1,10 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '@/store/store'
 import { planPasses } from '@/engine/planPasses'
 import { execute } from '@/engine/execute'
 import { createReglBackend, type Backend } from '@/engine/backend'
 import { registry } from '@/effects/registry'
 import { createRunCpu, type RunCpu } from '@/worker/runCpu'
+import { ProcessingOverlay } from '@/ui/ProcessingOverlay'
 
 interface ViewportProps {
   onReady?: (api: { backend: Backend; runCpu: RunCpu } | null) => void
@@ -21,6 +22,9 @@ export function Viewport({ onReady }: ViewportProps) {
   // Monotonic render id. Guards against presenting a superseded/older render
   // (out-of-order) or one whose backend was disposed on a source change.
   const genRef = useRef(0)
+  // Latest indicator timer, tracked only so effect cleanup can cancel it.
+  const indicatorTimerRef = useRef<number>(0)
+  const [rendering, setRendering] = useState(false)
 
   // Lazily create the CPU worker client once. Declared before the source
   // effect below so cpuRef.current is already set when the backend is
@@ -62,6 +66,22 @@ export function Viewport({ onReady }: ViewportProps) {
       if (!backend || !cpu) return
       const gen = ++genRef.current
       const steps = planPasses(stack, registry)
+      // A CPU (worker) pass can be slow — notably the first, cold invocation.
+      // Show a "Processing…" indicator, but only if the render is still running
+      // after a short delay, so fast GPU/warm renders don't flicker it.
+      const hasCpu = steps.some((s) => s.effect.kind === 'cpu')
+      let indicatorTimer = 0
+      if (hasCpu) {
+        indicatorTimer = window.setTimeout(() => {
+          if (gen === genRef.current) setRendering(true)
+        }, 150)
+        indicatorTimerRef.current = indicatorTimer
+      }
+      const done = () => {
+        window.clearTimeout(indicatorTimer)
+        // Only the newest render owns the indicator state.
+        if (gen === genRef.current) setRendering(false)
+      }
       execute(steps, backend, { runCpu: cpu.runCpu, palettes })
         .then((tex) => {
           // Drop this frame if a newer render started (out-of-order) or the
@@ -73,8 +93,12 @@ export function Viewport({ onReady }: ViewportProps) {
           // A superseded render can reject when its backend/worker is disposed
           // mid-flight; that's expected — swallow so it isn't an unhandled rejection.
         })
+        .finally(done)
     })
-    return () => cancelAnimationFrame(rafRef.current)
+    return () => {
+      cancelAnimationFrame(rafRef.current)
+      window.clearTimeout(indicatorTimerRef.current)
+    }
   }, [source, stack, palettes])
 
   if (!source) {
@@ -87,7 +111,7 @@ export function Viewport({ onReady }: ViewportProps) {
 
   return (
     <div
-      className="flex h-full w-full items-center justify-center overflow-hidden p-4"
+      className="relative flex h-full w-full items-center justify-center overflow-hidden p-4"
       style={{
         backgroundImage:
           'repeating-conic-gradient(#00000010 0% 25%, transparent 0% 50%)',
@@ -99,6 +123,7 @@ export function Viewport({ onReady }: ViewportProps) {
         className="max-h-full max-w-full object-contain shadow-sm"
         style={{ imageRendering: 'auto' }}
       />
+      <ProcessingOverlay show={rendering} />
     </div>
   )
 }
