@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ChevronDown, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -8,18 +9,29 @@ import {
 import { useStore } from '@/store/store'
 import { buildPreset, presetToJson, parsePresetJson } from '@/features/preset'
 import { encodePresetParam } from '@/features/presetUrl'
-import { loadNamedPresets, addNamedPreset, deleteNamedPreset } from '@/features/presetStorage'
+import { loadNamedPresets, addNamedPreset, deleteNamedPreset, type NamedPreset } from '@/features/presetStorage'
+
+// Names new presets after (max existing "Preset N" number) + 1, so deleting
+// then saving again doesn't reuse a number still visible in the list.
+function nextPresetName(existing: NamedPreset[]): string {
+  const max = existing.reduce((best, np) => {
+    const m = /^Preset (\d+)$/.exec(np.name)
+    return m ? Math.max(best, Number(m[1])) : best
+  }, 0)
+  return `Preset ${max + 1}`
+}
 
 export function PresetMenu() {
   const stack = useStore((s) => s.stack)
   const palettes = useStore((s) => s.palettes)
   const loadPreset = useStore((s) => s.loadPreset)
-  const saved = loadNamedPresets()
+  const [saved, setSaved] = useState<NamedPreset[]>([])
 
   const current = () => buildPreset(stack, palettes)
 
   const onSave = () => {
-    addNamedPreset(`Preset ${saved.length + 1}`, current())
+    addNamedPreset(nextPresetName(saved), current())
+    setSaved(loadNamedPresets())
     toast.success('Preset saved')
   }
 
@@ -53,7 +65,7 @@ export function PresetMenu() {
   }
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => { if (open) setSaved(loadNamedPresets()) }}>
       <DropdownMenuTrigger
         render={
           <Button size="sm" variant="outline">
@@ -66,6 +78,7 @@ export function PresetMenu() {
         <DropdownMenuItem onClick={onShare}>Share link</DropdownMenuItem>
         <DropdownMenuItem onClick={onExport}>Export current</DropdownMenuItem>
         <DropdownMenuItem
+          closeOnClick={false}
           render={
             <label>
               Import…
@@ -103,6 +116,7 @@ export function PresetMenu() {
                     onClick={(e) => {
                       e.stopPropagation()
                       deleteNamedPreset(np.id)
+                      setSaved(loadNamedPresets())
                       toast.success('Preset deleted')
                     }}
                   >

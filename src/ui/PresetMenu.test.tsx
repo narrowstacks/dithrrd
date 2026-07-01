@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PresetMenu } from '@/ui/PresetMenu'
 import { appStore } from '@/store/store'
@@ -51,5 +51,40 @@ describe('PresetMenu', () => {
     const url = writeText.mock.calls[0][0] as string
     const param = new URL(url).searchParams.get('p')!
     expect(decodePresetParam(param).stack[0].type).toBe('bayer')
+  })
+
+  it('imports a preset file even though the menu closes on click', async () => {
+    const user = userEvent.setup()
+    render(<PresetMenu />)
+    await user.click(screen.getByRole('button', { name: /presets/i }))
+    const input = await screen.findByLabelText(/import preset/i)
+    const json = JSON.stringify({
+      v: 1,
+      stack: [{ id: 'x', type: 'bayer', enabled: true, params: { levels: 3 } }],
+      palettes: [],
+    })
+    const file = new File([json], 'preset.json', { type: 'application/json' })
+    // Mock text() method for jsdom compatibility (see PaletteControl.test.tsx).
+    Object.defineProperty(file, 'text', { value: () => Promise.resolve(json) })
+    fireEvent.change(input, { target: { files: [file] } })
+    await vi.waitFor(() => {
+      expect(appStore.getState().stack[0]?.type).toBe('bayer')
+    })
+  })
+
+  it('keeps the saved-preset list current and avoids reusing names across a session', async () => {
+    const user = userEvent.setup()
+    appStore.getState().addNode('bayer')
+    render(<PresetMenu />)
+
+    await user.click(screen.getByRole('button', { name: /presets/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /save current/i }))
+
+    await user.click(screen.getByRole('button', { name: /presets/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /save current/i }))
+
+    const saved = loadNamedPresets()
+    expect(saved).toHaveLength(2)
+    expect(saved.map((np) => np.name).sort()).toEqual(['Preset 1', 'Preset 2'])
   })
 })
