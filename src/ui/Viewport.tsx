@@ -4,9 +4,13 @@ import { planPasses } from '@/engine/planPasses'
 import { execute } from '@/engine/execute'
 import { createReglBackend, type Backend } from '@/engine/backend'
 import { registry } from '@/effects/registry'
-import { createRunCpu } from '@/worker/runCpu'
+import { createRunCpu, type RunCpu } from '@/worker/runCpu'
 
-export function Viewport() {
+interface ViewportProps {
+  onReady?: (api: { backend: Backend; runCpu: RunCpu } | null) => void
+}
+
+export function Viewport({ onReady }: ViewportProps) {
   const source = useStore((s) => s.source)
   const stack = useStore((s) => s.stack)
   const palettes = useStore((s) => s.palettes)
@@ -18,6 +22,17 @@ export function Viewport() {
   // (out-of-order) or one whose backend was disposed on a source change.
   const genRef = useRef(0)
 
+  // Lazily create the CPU worker client once. Declared before the source
+  // effect below so cpuRef.current is already set when the backend is
+  // published via onReady.
+  useEffect(() => {
+    cpuRef.current = createRunCpu()
+    return () => {
+      cpuRef.current?.dispose()
+      cpuRef.current = null
+    }
+  }, [])
+
   // (Re)create the backend when the source changes.
   useEffect(() => {
     backendRef.current?.dispose()
@@ -27,20 +42,15 @@ export function Viewport() {
     canvas.width = source.width
     canvas.height = source.height
     backendRef.current = createReglBackend(canvas, source.image, source.width, source.height)
+    if (cpuRef.current) {
+      onReady?.({ backend: backendRef.current, runCpu: cpuRef.current.runCpu })
+    }
     return () => {
       backendRef.current?.dispose()
       backendRef.current = null
+      onReady?.(null)
     }
   }, [source])
-
-  // Lazily create the CPU worker client once.
-  useEffect(() => {
-    cpuRef.current = createRunCpu()
-    return () => {
-      cpuRef.current?.dispose()
-      cpuRef.current = null
-    }
-  }, [])
 
   // Render on any state change, debounced to one rAF.
   useEffect(() => {
