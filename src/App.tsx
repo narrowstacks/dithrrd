@@ -1,6 +1,7 @@
 import { AppShell, hasWebGL2, WebGL2Fallback } from '@/ui/AppShell'
 import { Toolbar } from '@/ui/Toolbar'
 import { Viewport } from '@/ui/Viewport'
+import { StackPanel } from '@/ui/StackPanel'
 import { useStore } from '@/store/store'
 import { decodeToWorkingImage } from '@/features/image'
 
@@ -28,7 +29,7 @@ export default function App() {
           canExport={!!source}
         />
       }
-      stack={<div className="p-3 text-sm text-muted-foreground">Stack</div>}
+      stack={<StackPanel />}
       viewport={<Viewport />}
       controls={<div className="p-3 text-sm text-muted-foreground">Controls</div>}
     />
