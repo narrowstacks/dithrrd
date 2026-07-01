@@ -26,6 +26,11 @@ so the decisions aren't lost.
 
 These are candidate enhancements once the three planned phases land — not commitments.
 
+- **Multi-document / tabbed editing** (Photoshop-style) — multiple photos open in one window,
+  each as its own tab with independent effect stack, undo history, and zoom/pan state. The
+  Phase 3 polish undo/redo is intentionally a single global document history (cleared on image
+  load) so it can later become per-document without reworking the coalescing/partialize logic.
+  See the [Phase 3 polish spec](specs/2026-07-01-photo-dither-phase-3-polish.md).
 - Additional preset palettes and a community/shared palette import format.
 - More matrix authoring (paint your own Bayer / clustered-dot matrix).
 - Per-node blend modes / opacity between stack passes.
