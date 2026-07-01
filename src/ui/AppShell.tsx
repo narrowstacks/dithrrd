@@ -39,6 +39,18 @@ export function AppShell({ toolbar, stack, viewport, controls }: AppShellProps) 
   const setPanelCollapsed = useStore((s) => s.setPanelCollapsed)
   const leftRef = useRef<PanelImperativeHandle>(null)
   const rightRef = useRef<PanelImperativeHandle>(null)
+  const lastReported = useRef({ left: panels.left, right: panels.right })
+
+  // Only report a collapse change when it actually differs from the last reported
+  // state. onResize fires on every ResizeObserver tick (including a mount-time call
+  // with prevPanelSize: undefined), and setPanelCollapsed always allocates a new
+  // panels object, which would otherwise re-render AppShell and write to
+  // localStorage on every ordinary drag tick.
+  const reportCollapsed = (side: 'left' | 'right', collapsed: boolean) => {
+    if (lastReported.current[side] === collapsed) return
+    lastReported.current[side] = collapsed
+    setPanelCollapsed(side, collapsed)
+  }
 
   // Drive the panels imperatively from store state.
   useEffect(() => {
@@ -60,7 +72,7 @@ export function AppShell({ toolbar, stack, viewport, controls }: AppShellProps) 
           collapsedSize={0}
           defaultSize={panels.left ? 0 : 20}
           minSize={14}
-          onResize={(size) => setPanelCollapsed('left', size.asPercentage <= 0)}
+          onResize={(size) => reportCollapsed('left', size.asPercentage <= 0)}
         >
           <div data-testid="stack-region" className="h-full overflow-hidden border-r">
             {stack}
@@ -79,7 +91,7 @@ export function AppShell({ toolbar, stack, viewport, controls }: AppShellProps) 
           collapsedSize={0}
           defaultSize={panels.right ? 0 : 24}
           minSize={16}
-          onResize={(size) => setPanelCollapsed('right', size.asPercentage <= 0)}
+          onResize={(size) => reportCollapsed('right', size.asPercentage <= 0)}
         >
           <div data-testid="controls-region" className="h-full overflow-hidden border-l">
             {controls}
