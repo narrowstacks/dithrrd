@@ -26,8 +26,8 @@ export function Control({ control, value, onChange }: ControlProps) {
             min={control.min}
             max={control.max}
             step={control.step}
-            value={Number(value)}
-            onValueChange={(v) => onChange(v as number)}
+            value={[Number(value)]}
+            onValueChange={(v) => onChange((Array.isArray(v) ? v[0] : v) as number)}
           />
         </div>
       )
@@ -42,8 +42,8 @@ export function Control({ control, value, onChange }: ControlProps) {
             min={0}
             max={360}
             step={1}
-            value={Number(value)}
-            onValueChange={(v) => onChange(v as number)}
+            value={[Number(value)]}
+            onValueChange={(v) => onChange((Array.isArray(v) ? v[0] : v) as number)}
           />
         </div>
       )
