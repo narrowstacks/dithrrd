@@ -31,11 +31,11 @@ export function createReglBackend(
   width: number,
   height: number,
 ): Backend & { dispose(): void } {
-  const regl: Regl = createREGL({
-    canvas,
-    attributes: { preserveDrawingBuffer: true },
-    extensions: [],
-  })
+  // regl, given only a canvas, requests webgl/experimental-webgl (WebGL1), which cannot
+  // compile our `#version 300 es` shaders. Obtain a WebGL2 context and pass it as `gl`.
+  const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true })
+  if (!gl) throw new Error('WebGL2 not supported')
+  const regl: Regl = createREGL({ gl: gl as unknown as WebGLRenderingContext, extensions: [] })
 
   // NOTE(types): regl's bundled TextureImageData union doesn't include ImageData
   // (only ArrayBufferView/HTMLImageElement/etc. at the type level, even though the
@@ -60,6 +60,7 @@ export function createReglBackend(
   }
   const pool = [makeFbo(), makeFbo()]
   let acquired = 0
+  let lastUploaded: Texture2D | null = null
 
   const wrapTex = (t: Texture2D): TexHandle => ({ t } as unknown as TexHandle)
   const wrapFbo = (fb: Framebuffer2D, tex: TexHandle): FboHandle =>
@@ -102,8 +103,11 @@ void main() { fragColor = texture(src, vUv); }`, [])
       fb.destroy()
       return { data: out, width, height }
     },
-    uploadPixels: (data, w, h) =>
-      wrapTex(regl.texture({ data, width: w, height: h, min: 'nearest', mag: 'nearest' })),
+    uploadPixels: (data, w, h) => {
+      lastUploaded?.destroy()
+      lastUploaded = regl.texture({ data, width: w, height: h, min: 'nearest', mag: 'nearest' })
+      return wrapTex(lastUploaded)
+    },
     present: (tex) => {
       regl.clear({ color: [0, 0, 0, 0], depth: 1 })
       present({ framebuffer: null, src: rawTex(tex), resolution: [width, height] })

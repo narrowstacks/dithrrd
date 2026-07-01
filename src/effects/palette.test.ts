@@ -7,13 +7,13 @@ describe('palette effect', () => {
     const u = paletteEffect.uniforms(paletteEffect.defaultParams, { palettes: PALETTES })
     expect(Object.keys(u).sort()).toEqual([...paletteEffect.uniformKeys].sort())
   })
-  it('flattens the selected palette into a 48-length array with a count', () => {
-    const u = paletteEffect.uniforms({ paletteId: 'bw' }, { palettes: PALETTES }) as {
-      uPalette: number[]; uCount: number
-    }
+  it('emits one vec3 per palette slot (bw: black, white, then padding) with a count', () => {
+    const u = paletteEffect.uniforms({ paletteId: 'bw' }, { palettes: PALETTES }) as Record<string, unknown>
     expect(u.uCount).toBe(2)
-    expect(u.uPalette).toHaveLength(48)
-    expect(u.uPalette.slice(0, 6)).toEqual([0, 0, 0, 1, 1, 1])
+    expect(u['uPalette[0]']).toEqual([0, 0, 0])
+    expect(u['uPalette[1]']).toEqual([1, 1, 1])
+    expect(u['uPalette[2]']).toEqual([0, 0, 0])
+    expect(u['uPalette[15]']).toEqual([0, 0, 0])
   })
   it('falls back to bw when the palette id is unknown', () => {
     const u = paletteEffect.uniforms({ paletteId: 'nope' }, { palettes: PALETTES }) as { uCount: number }

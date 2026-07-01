@@ -21,15 +21,15 @@ void main() {
   fragColor = vec4(pick, 1.0);
 }`
 
-function flatten(palette: Palette): { uPalette: number[]; uCount: number } {
-  const out = new Array(MAX * 3).fill(0)
-  const n = Math.min(palette.colors.length, MAX)
-  for (let i = 0; i < n; i++) {
-    out[i * 3] = palette.colors[i][0]
-    out[i * 3 + 1] = palette.colors[i][1]
-    out[i * 3 + 2] = palette.colors[i][2]
+const PALETTE_KEYS = Array.from({ length: MAX }, (_, i) => `uPalette[${i}]`)
+
+function paletteUniforms(palette: Palette): Record<string, unknown> {
+  const u: Record<string, unknown> = { uCount: Math.min(palette.colors.length, MAX) }
+  for (let i = 0; i < MAX; i++) {
+    const c = palette.colors[i]
+    u[`uPalette[${i}]`] = c ? [c[0], c[1], c[2]] : [0, 0, 0]
   }
-  return { uPalette: out, uCount: n }
+  return u
 }
 
 export const paletteEffect: GpuEffect = {
@@ -42,9 +42,9 @@ export const paletteEffect: GpuEffect = {
     { type: 'palette', key: 'paletteId', label: 'Palette' },
   ],
   frag: FRAG,
-  uniformKeys: ['uPalette', 'uCount'],
+  uniformKeys: [...PALETTE_KEYS, 'uCount'],
   uniforms: (p, ctx) => {
     const palette = ctx.palettes[String(p.paletteId)] ?? PALETTES.bw
-    return flatten(palette)
+    return paletteUniforms(palette)
   },
 }
