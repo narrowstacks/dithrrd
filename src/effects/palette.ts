@@ -24,7 +24,7 @@ void main() {
   CONSIDER(8, uP8) CONSIDER(9, uP9) CONSIDER(10, uP10) CONSIDER(11, uP11)
   CONSIDER(12, uP12) CONSIDER(13, uP13) CONSIDER(14, uP14) CONSIDER(15, uP15)
   #undef CONSIDER
-  fragColor = vec4(pick, 1.0);
+  fragColor = vec4(pick, texture(src, vUv).a);
 }`
 
 const PALETTE_KEYS = Array.from({ length: MAX }, (_, i) => `uP${i}`)
