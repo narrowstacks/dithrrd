@@ -17,12 +17,13 @@ void main() {
   vec2 rp = R * p;
   vec2 cellCenterR = (floor(rp / cs) + 0.5) * cs;
   vec2 center = Rt * cellCenterR;
-  float l = luma(texture(src, clamp(center / resolution, 0.0, 1.0)).rgb);
+  vec4 srcCell = texture(src, clamp(center / resolution, 0.0, 1.0));
+  float l = luma(srcCell.rgb);
   float radius = (1.0 - l) * 0.5 * cs * 1.20;
   float d = distance(p, center);
   float dot_ = smoothstep(radius + 1.0, radius - 1.0, d);
   vec3 col = mix(vec3(1.0), vec3(0.0), dot_);
-  fragColor = vec4(col, 1.0);
+  fragColor = vec4(col, srcCell.a);
 }`
 
 export const halftone: GpuEffect = {

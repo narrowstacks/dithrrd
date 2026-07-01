@@ -9,10 +9,11 @@ void main() {
   float ps = max(uPixelSize, 1.0);
   vec2 cell = ps / resolution;
   vec2 uv = (floor(vUv / cell) + 0.5) * cell;
-  vec3 c = texture(src, uv).rgb;
+  vec4 s = texture(src, uv);
+  vec3 c = s.rgb;
   float L = max(uLevels, 2.0);
   c = floor(c * (L - 1.0) + 0.5) / (L - 1.0);
-  fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+  fragColor = vec4(clamp(c, 0.0, 1.0), s.a);
 }`
 
 export const pixelate: GpuEffect = {

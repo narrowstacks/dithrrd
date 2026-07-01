@@ -13,7 +13,7 @@ void main() {
   c = pow(c, vec3(1.0 / max(uGamma, 0.001)));
   float l = dot(c, vec3(0.299, 0.587, 0.114));
   c = mix(vec3(l), c, uSaturation);
-  fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+  fragColor = vec4(clamp(c, 0.0, 1.0), texture(src, vUv).a);
 }`
 
 export const grade: GpuEffect = {

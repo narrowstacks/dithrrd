@@ -30,7 +30,7 @@ void main() {
   vec3 c = texture(src, vUv).rgb;
   c = clamp(c + t / (L - 1.0), 0.0, 1.0);
   c = floor(c * (L - 1.0) + 0.5) / (L - 1.0);
-  fragColor = vec4(c, 1.0);
+  fragColor = vec4(c, texture(src, vUv).a);
 }`
 
 export const bayer: GpuEffect = {
