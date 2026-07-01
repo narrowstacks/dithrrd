@@ -33,7 +33,13 @@ export function createReglBackend(
 ): Backend & { dispose(): void } {
   // regl, given only a canvas, requests webgl/experimental-webgl (WebGL1), which cannot
   // compile our `#version 300 es` shaders. Obtain a WebGL2 context and pass it as `gl`.
-  const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true })
+  // premultipliedAlpha: false — our shaders output straight (non-premultiplied)
+  // color + alpha, so the compositor must treat the drawing buffer as straight alpha
+  // to avoid fringing at partially-transparent edges.
+  const gl = canvas.getContext('webgl2', {
+    preserveDrawingBuffer: true,
+    premultipliedAlpha: false,
+  })
   if (!gl) throw new Error('WebGL2 not supported')
   const regl: Regl = createREGL({ gl: gl as unknown as WebGLRenderingContext, extensions: [] })
 

@@ -40,6 +40,13 @@ export function createRunCpu(): { runCpu: RunCpu; dispose: () => void } {
       worker.postMessage({ id, type, buf: copy.buffer, width, height, params }, [copy.buffer])
     })
 
+  // Warm up eagerly: the worker module compiles lazily and the algorithm JITs on first
+  // use, so the first real CPU render would otherwise stall for seconds. A tiny 1×1 job
+  // pays that cost at startup instead. Result ignored.
+  void runCpu('floyd', new Uint8ClampedArray(4), 1, 1, { levels: 2, serpentine: false }).catch(
+    () => {},
+  )
+
   return {
     runCpu,
     dispose: () => {
