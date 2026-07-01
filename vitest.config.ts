@@ -11,5 +11,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
+    // Use worker_threads instead of the default forked child processes. Threads
+    // live inside the main vitest process, so an interrupted/killed run can't
+    // orphan a pool worker that keeps spinning at 100% CPU (which forks can).
+    pool: 'threads',
   },
 })
