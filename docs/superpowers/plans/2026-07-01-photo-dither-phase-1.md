@@ -2708,7 +2708,7 @@ export function Control({ control, value, onChange }: ControlProps) {
             max={control.max}
             step={control.step}
             value={[Number(value)]}
-            onValueChange={([v]) => onChange(v)}
+            onValueChange={(v) => onChange((Array.isArray(v) ? v[0] : v) as number)}
           />
         </div>
       )
@@ -2719,7 +2719,7 @@ export function Control({ control, value, onChange }: ControlProps) {
             <Label className="text-xs">{control.label}</Label>
             <span className="tabular-nums text-xs text-muted-foreground">{Number(value)}°</span>
           </div>
-          <Slider min={0} max={360} step={1} value={[Number(value)]} onValueChange={([v]) => onChange(v)} />
+          <Slider min={0} max={360} step={1} value={[Number(value)]} onValueChange={(v) => onChange((Array.isArray(v) ? v[0] : v) as number)} />
         </div>
       )
     case 'toggle':
