@@ -93,11 +93,14 @@ void main() { fragColor = texture(src, vUv); }`, [])
     },
     fboTexture: (fbo) => (fbo as unknown as { tex: TexHandle }).tex,
     readback: (tex) => {
-      // Find the fbo whose color texture is this handle; read its pixels.
-      const t = rawTex(tex)
-      const entry = pool.find((p) => p.tex === t)
-      const data = regl.read({ framebuffer: entry?.fb }) as Uint8Array
-      return { data: new Uint8ClampedArray(data.buffer), width, height }
+      // Wrap ANY texture (pool fbo texture, uploadPixels result, or source) in a
+      // temporary framebuffer and read it — works regardless of pool membership,
+      // which is required for exporting a stack whose final effect is CPU.
+      const fb = regl.framebuffer({ color: rawTex(tex), depth: false })
+      const data = regl.read({ framebuffer: fb }) as Uint8Array
+      const out = new Uint8ClampedArray(data)
+      fb.destroy()
+      return { data: out, width, height }
     },
     uploadPixels: (data, w, h) =>
       wrapTex(regl.texture({ data, width: w, height: h, min: 'nearest', mag: 'nearest' })),
