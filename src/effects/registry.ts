@@ -12,8 +12,9 @@ import { sierra } from '@/effects/sierra'
 import { burkes } from '@/effects/burkes'
 import { clusteredDot } from '@/effects/clusteredDot'
 import { lineScreen } from '@/effects/lineScreen'
+import { crosshatch } from '@/effects/crosshatch'
 
-export const EFFECT_LIST: Effect[] = [grade, pixelate, bayer, halftone, paletteEffect, floyd, atkinson, jarvis, stucki, sierra, burkes, clusteredDot, lineScreen]
+export const EFFECT_LIST: Effect[] = [grade, pixelate, bayer, halftone, paletteEffect, floyd, atkinson, jarvis, stucki, sierra, burkes, clusteredDot, lineScreen, crosshatch]
 
 export const registry: Record<string, Effect> = Object.fromEntries(
   EFFECT_LIST.map((e) => [e.type, e]),
