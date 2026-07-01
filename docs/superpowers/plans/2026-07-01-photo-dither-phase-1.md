@@ -1144,11 +1144,14 @@ export function createReglBackend(
   width: number,
   height: number,
 ): Backend & { dispose(): void } {
-  const regl: Regl = createREGL({
-    canvas,
-    attributes: { preserveDrawingBuffer: true },
-    extensions: [],
-  })
+  // Must obtain a WebGL2 context explicitly: regl, given only `canvas`, requests
+  // `webgl`/`experimental-webgl` (WebGL1), which cannot compile our `#version 300 es`
+  // shaders. Create the webgl2 context and pass it as `gl` (regl uses a supplied gl
+  // verbatim and then ignores the `attributes` option — so preserveDrawingBuffer must
+  // go on getContext).
+  const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true })
+  if (!gl) throw new Error('WebGL2 not supported')
+  const regl: Regl = createREGL({ gl: gl as unknown as WebGLRenderingContext, extensions: [] })
 
   const sourceTex = regl.texture({ data: source, flipY: true, min: 'linear', mag: 'linear' })
 
@@ -1159,6 +1162,10 @@ export function createReglBackend(
     })
   const pool = [makeFbo(), makeFbo()]
   let acquired = 0
+  // The texture produced by the most recent CPU step (uploadPixels). Destroyed when the
+  // next upload replaces it, so repeated renders with CPU effects don't leak GPU textures.
+  // The current one stays alive through present/readback; regl.destroy() frees the last.
+  let lastUploaded: Texture2D | null = null
 
   const wrapTex = (t: Texture2D): TexHandle => ({ t } as unknown as TexHandle)
   const wrapFbo = (fb: Framebuffer2D, tex: TexHandle): FboHandle =>
@@ -1203,8 +1210,11 @@ void main() { fragColor = texture(src, vUv); }`, [])
       fb.destroy()
       return { data: out, width, height }
     },
-    uploadPixels: (data, w, h) =>
-      wrapTex(regl.texture({ data, width: w, height: h, min: 'nearest', mag: 'nearest' })),
+    uploadPixels: (data, w, h) => {
+      lastUploaded?.destroy()
+      lastUploaded = regl.texture({ data, width: w, height: h, min: 'nearest', mag: 'nearest' })
+      return wrapTex(lastUploaded)
+    },
     present: (tex) => {
       regl.clear({ color: [0, 0, 0, 0], depth: 1 })
       present({ framebuffer: null, src: rawTex(tex), resolution: [width, height] })
@@ -1670,7 +1680,7 @@ git commit -m "feat: add circular halftone effect"
 
 **Interfaces:**
 - Consumes: `GpuEffect`, `EffectContext`, `PALETTES` (Tasks 3).
-- Produces: `paletteEffect: GpuEffect`, `type: 'palette'`. `uniforms()` returns `{ uPalette: number[48], uCount: number }`, reading `ctx.palettes[params.paletteId]`.
+- Produces: `paletteEffect: GpuEffect`, `type: 'palette'`. `uniforms()` returns per-element keys `uPalette[0]`..`uPalette[15]` (each an `[r,g,b]` vec3, unused slots black) plus `uCount`, reading `ctx.palettes[params.paletteId]`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1685,13 +1695,13 @@ describe('palette effect', () => {
     const u = paletteEffect.uniforms(paletteEffect.defaultParams, { palettes: PALETTES })
     expect(Object.keys(u).sort()).toEqual([...paletteEffect.uniformKeys].sort())
   })
-  it('flattens the selected palette into a 48-length array with a count', () => {
-    const u = paletteEffect.uniforms({ paletteId: 'bw' }, { palettes: PALETTES }) as {
-      uPalette: number[]; uCount: number
-    }
+  it('emits one vec3 per palette slot (bw: black, white, then padding) with a count', () => {
+    const u = paletteEffect.uniforms({ paletteId: 'bw' }, { palettes: PALETTES }) as Record<string, unknown>
     expect(u.uCount).toBe(2)
-    expect(u.uPalette).toHaveLength(48)
-    expect(u.uPalette.slice(0, 6)).toEqual([0, 0, 0, 1, 1, 1])
+    expect(u['uPalette[0]']).toEqual([0, 0, 0]) // black
+    expect(u['uPalette[1]']).toEqual([1, 1, 1]) // white
+    expect(u['uPalette[2]']).toEqual([0, 0, 0]) // unused slot padded
+    expect(u['uPalette[15]']).toEqual([0, 0, 0])
   })
   it('falls back to bw when the palette id is unknown', () => {
     const u = paletteEffect.uniforms({ paletteId: 'nope' }, { palettes: PALETTES }) as { uCount: number }
@@ -1732,15 +1742,19 @@ void main() {
   fragColor = vec4(pick, 1.0);
 }`
 
-function flatten(palette: Palette): { uPalette: number[]; uCount: number } {
-  const out = new Array(MAX * 3).fill(0)
-  const n = Math.min(palette.colors.length, MAX)
-  for (let i = 0; i < n; i++) {
-    out[i * 3] = palette.colors[i][0]
-    out[i * 3 + 1] = palette.colors[i][1]
-    out[i * 3 + 2] = palette.colors[i][2]
+// regl expands `uniform vec3 uPalette[16]` into per-element active uniforms named
+// `uPalette[0]`..`uPalette[15]`, and binds uniforms by EXACT name. A single flat
+// `uPalette` key would match no active uniform (silently unbound -> NaN). So we emit
+// one key per element, each a [r,g,b] vec3, padding unused slots with black.
+const PALETTE_KEYS = Array.from({ length: MAX }, (_, i) => `uPalette[${i}]`)
+
+function paletteUniforms(palette: Palette): Record<string, unknown> {
+  const u: Record<string, unknown> = { uCount: Math.min(palette.colors.length, MAX) }
+  for (let i = 0; i < MAX; i++) {
+    const c = palette.colors[i]
+    u[`uPalette[${i}]`] = c ? [c[0], c[1], c[2]] : [0, 0, 0]
   }
-  return { uPalette: out, uCount: n }
+  return u
 }
 
 export const paletteEffect: GpuEffect = {
@@ -1753,10 +1767,10 @@ export const paletteEffect: GpuEffect = {
     { type: 'palette', key: 'paletteId', label: 'Palette' },
   ],
   frag: FRAG,
-  uniformKeys: ['uPalette', 'uCount'],
+  uniformKeys: [...PALETTE_KEYS, 'uCount'],
   uniforms: (p, ctx) => {
     const palette = ctx.palettes[String(p.paletteId)] ?? PALETTES.bw
-    return flatten(palette)
+    return paletteUniforms(palette)
   },
 }
 ```
@@ -1773,7 +1787,7 @@ export const EFFECT_LIST: Effect[] = [grade, pixelate, bayer, halftone, paletteE
 Run: `pnpm test src/effects/palette.test.ts src/effects/registry.test.ts`
 Expected: PASS.
 
-> Implementer note: `uPalette` is set as a single flat `number[]` of length 48. regl uploads array uniforms via the base name. If regl rejects the flat array for `vec3 uPalette[16]`, set each element individually in `quadCommand` by expanding `uPalette` into `uPalette[0..15]` props — but try the flat array first.
+> Implementer note: uniforms are emitted per array element (`uPalette[0]`..`uPalette[15]`), because regl binds array uniforms by their per-element active-uniform names, not a single base name. The generic `quadCommand` declares each key as a `regl.prop`, so bracketed keys flow through unchanged.
 
 - [ ] **Step 5: Commit**
 
