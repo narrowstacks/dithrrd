@@ -14,6 +14,9 @@ export function Viewport() {
   const backendRef = useRef<(Backend & { dispose(): void }) | null>(null)
   const cpuRef = useRef<ReturnType<typeof createRunCpu> | null>(null)
   const rafRef = useRef<number>(0)
+  // Monotonic render id. Guards against presenting a superseded/older render
+  // (out-of-order) or one whose backend was disposed on a source change.
+  const genRef = useRef(0)
 
   // (Re)create the backend when the source changes.
   useEffect(() => {
@@ -47,10 +50,19 @@ export function Viewport() {
       const backend = backendRef.current
       const cpu = cpuRef.current
       if (!backend || !cpu) return
+      const gen = ++genRef.current
       const steps = planPasses(stack, registry)
-      void execute(steps, backend, { runCpu: cpu.runCpu, palettes }).then((tex) =>
-        backend.present(tex),
-      )
+      execute(steps, backend, { runCpu: cpu.runCpu, palettes })
+        .then((tex) => {
+          // Drop this frame if a newer render started (out-of-order) or the
+          // backend was swapped/disposed on a source change (stale closure).
+          if (gen !== genRef.current || backendRef.current !== backend) return
+          backend.present(tex)
+        })
+        .catch(() => {
+          // A superseded render can reject when its backend/worker is disposed
+          // mid-flight; that's expected — swallow so it isn't an unhandled rejection.
+        })
     })
     return () => cancelAnimationFrame(rafRef.current)
   }, [source, stack, palettes])
