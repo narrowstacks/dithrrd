@@ -1,10 +1,7 @@
 import type { Palette } from '@/effects/types'
+import { hexToRgb01 } from '@/color/hex'
 
-const hex = (h: string): [number, number, number] => [
-  parseInt(h.slice(0, 2), 16) / 255,
-  parseInt(h.slice(2, 4), 16) / 255,
-  parseInt(h.slice(4, 6), 16) / 255,
-]
+const hex = hexToRgb01
 
 export const PALETTES: Record<string, Palette> = {
   bw: { id: 'bw', name: 'Black & White', colors: [[0, 0, 0], [1, 1, 1]] },

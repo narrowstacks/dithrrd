@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useStore } from '@/store/store'
+import { useStore, appStore } from '@/store/store'
 import { planPasses } from '@/engine/planPasses'
 import { execute } from '@/engine/execute'
 import { createReglBackend, type Backend } from '@/engine/backend'
@@ -15,6 +15,8 @@ export function Viewport({ onReady }: ViewportProps) {
   const source = useStore((s) => s.source)
   const stack = useStore((s) => s.stack)
   const palettes = useStore((s) => s.palettes)
+  const eyedropper = useStore((s) => s.eyedropper)
+  const applyEyedropper = useStore((s) => s.applyEyedropper)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const backendRef = useRef<(Backend & { dispose(): void }) | null>(null)
   const cpuRef = useRef<ReturnType<typeof createRunCpu> | null>(null)
@@ -101,6 +103,41 @@ export function Viewport({ onReady }: ViewportProps) {
     }
   }, [source, stack, palettes])
 
+  // Escape-to-cancel eyedropper when armed.
+  useEffect(() => {
+    if (!eyedropper) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        appStore.getState().cancelEyedropper()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [eyedropper])
+
+  const onCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!eyedropper || !source) return
+    const canvas = e.currentTarget
+    const rect = canvas.getBoundingClientRect()
+    // object-contain letterboxes: compute the drawn image rect inside the element.
+    const scale = Math.min(rect.width / source.width, rect.height / source.height)
+    const drawnW = source.width * scale
+    const drawnH = source.height * scale
+    const offX = (rect.width - drawnW) / 2
+    const offY = (rect.height - drawnH) / 2
+    const px = Math.floor(((e.clientX - rect.left - offX) / drawnW) * source.width)
+    const py = Math.floor(((e.clientY - rect.top - offY) / drawnH) * source.height)
+    if (px < 0 || py < 0 || px >= source.width || py >= source.height) {
+      // out of image bounds: ignore (do not call)
+      return
+    }
+    // Sampling uses the ORIGINAL source.image, not the dithered output.
+    const i = (py * source.width + px) * 4
+    const d = source.image.data
+    applyEyedropper([d[i] / 255, d[i + 1] / 255, d[i + 2] / 255])
+  }
+
   if (!source) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -120,8 +157,9 @@ export function Viewport({ onReady }: ViewportProps) {
     >
       <canvas
         ref={canvasRef}
+        onClick={onCanvasClick}
         className="max-h-full max-w-full object-contain shadow-sm"
-        style={{ imageRendering: 'auto' }}
+        style={{ imageRendering: 'auto', cursor: eyedropper ? 'crosshair' : undefined }}
       />
       <ProcessingOverlay show={rendering} />
     </div>
