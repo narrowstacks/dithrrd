@@ -116,4 +116,12 @@ export const KERNELS: Record<string, DiffusionKernel> = {
       { dx: 0, dy: 2, w: 1 },
     ],
   },
+  jarvis: {
+    divisor: 48,
+    cells: [
+      { dx: 1, dy: 0, w: 7 }, { dx: 2, dy: 0, w: 5 },
+      { dx: -2, dy: 1, w: 3 }, { dx: -1, dy: 1, w: 5 }, { dx: 0, dy: 1, w: 7 }, { dx: 1, dy: 1, w: 5 }, { dx: 2, dy: 1, w: 3 },
+      { dx: -2, dy: 2, w: 1 }, { dx: -1, dy: 2, w: 3 }, { dx: 0, dy: 2, w: 5 }, { dx: 1, dy: 2, w: 3 }, { dx: 2, dy: 2, w: 1 },
+    ],
+  },
 }

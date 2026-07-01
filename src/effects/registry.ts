@@ -6,8 +6,9 @@ import { halftone } from '@/effects/halftone'
 import { paletteEffect } from '@/effects/palette'
 import { floyd } from '@/effects/floydSteinberg'
 import { atkinson } from '@/effects/atkinson'
+import { jarvis } from '@/effects/jarvis'
 
-export const EFFECT_LIST: Effect[] = [grade, pixelate, bayer, halftone, paletteEffect, floyd, atkinson]
+export const EFFECT_LIST: Effect[] = [grade, pixelate, bayer, halftone, paletteEffect, floyd, atkinson, jarvis]
 
 export const registry: Record<string, Effect> = Object.fromEntries(
   EFFECT_LIST.map((e) => [e.type, e]),
