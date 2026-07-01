@@ -1,7 +1,6 @@
-import type { GpuEffect, Palette } from '@/effects/types'
+import type { GpuEffect } from '@/effects/types'
 import { PALETTES } from '@/color/palettes'
-
-const MAX = 16
+import { paletteUniformKeys, paletteVec3Uniforms } from '@/effects/paletteUniforms'
 
 // regl binds array uniforms (`vec3 uPalette[16]`) inconsistently; individual named
 // vec3 uniforms bind reliably (same path as every other effect's uniforms). So we
@@ -27,17 +26,6 @@ void main() {
   fragColor = vec4(pick, texture(src, vUv).a);
 }`
 
-const PALETTE_KEYS = Array.from({ length: MAX }, (_, i) => `uP${i}`)
-
-function paletteUniforms(palette: Palette): Record<string, unknown> {
-  const u: Record<string, unknown> = { uCount: Math.min(palette.colors.length, MAX) }
-  for (let i = 0; i < MAX; i++) {
-    const c = palette.colors[i]
-    u[`uP${i}`] = c ? [c[0], c[1], c[2]] : [0, 0, 0]
-  }
-  return u
-}
-
 export const paletteEffect: GpuEffect = {
   kind: 'gpu',
   type: 'palette',
@@ -48,9 +36,9 @@ export const paletteEffect: GpuEffect = {
     { type: 'palette', key: 'paletteId', label: 'Palette' },
   ],
   frag: FRAG,
-  uniformKeys: [...PALETTE_KEYS, 'uCount'],
+  uniformKeys: paletteUniformKeys(),
   uniforms: (p, ctx) => {
     const palette = ctx.palettes[String(p.paletteId)] ?? PALETTES.bw
-    return paletteUniforms(palette)
+    return paletteVec3Uniforms(palette)
   },
 }
