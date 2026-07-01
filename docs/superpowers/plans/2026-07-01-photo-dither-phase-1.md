@@ -1192,11 +1192,16 @@ void main() { fragColor = texture(src, vUv); }`, [])
     },
     fboTexture: (fbo) => (fbo as unknown as { tex: TexHandle }).tex,
     readback: (tex) => {
-      // Find the fbo whose color texture is this handle; read its pixels.
-      const t = rawTex(tex)
-      const fb = pool.find((f) => (f.color[0] as Texture2D) === t)
+      // Wrap ANY texture (pool fbo texture, uploadPixels result, or source) in a
+      // temporary framebuffer and read it. This works regardless of whether the
+      // texture came from the ping/pong pool — critical for exporting a stack whose
+      // final effect is CPU (e.g. Floyd–Steinberg), whose result is an uploadPixels
+      // texture that is not in the pool.
+      const fb = regl.framebuffer({ color: rawTex(tex), depth: false })
       const data = regl.read({ framebuffer: fb }) as Uint8Array
-      return { data: new Uint8ClampedArray(data.buffer), width, height }
+      const out = new Uint8ClampedArray(data)
+      fb.destroy()
+      return { data: out, width, height }
     },
     uploadPixels: (data, w, h) =>
       wrapTex(regl.texture({ data, width: w, height: h, min: 'nearest', mag: 'nearest' })),
@@ -1209,7 +1214,7 @@ void main() { fragColor = texture(src, vUv); }`, [])
 }
 ```
 
-> Manual verification for the regl backend happens end-to-end in Task 13 (viewport). There is no headless WebGL2 in Vitest, so `createReglBackend` is intentionally excluded from unit tests; the orchestration it serves (`execute`) is fully covered with a fake backend above. NOTE for the implementer: when `readback` is called after a CPU node, `current` points at the most recent GPU fbo's texture; the source texture (never in the pool) is only read back if a CPU effect is the very first node — in that case `fb` is `undefined` and `regl.read` reads the default framebuffer, which is acceptable for Phase 1 (a CPU-first stack is an unusual ordering). Revisit if it causes artifacts.
+> Manual verification for the regl backend happens end-to-end in Task 13 (viewport). There is no headless WebGL2 in Vitest, so `createReglBackend` is intentionally excluded from unit tests; the orchestration it serves (`execute`) is fully covered with a fake backend above. `readback` wraps whatever texture it is given in a throwaway framebuffer, so it reads the correct pixels for GPU fbo textures, `uploadPixels` results (CPU output), and the source texture alike — including CPU-first stacks and stacks ending in a CPU effect.
 
 - [ ] **Step 10: Run all tests + build**
 
@@ -3049,6 +3054,6 @@ git commit -m "feat: add PNG export and error toasts"
 **3. Type consistency:** `StackNode` defined in Task 5, reused by store (Task 11), export (Task 16). `Backend`/`TexHandle`/`FboHandle` from Task 5 used consistently. `RunCpu` from Task 4 used by execute (5), viewport (13), export (16). Effect `uniforms()` returns keys matching `uniformKeys` — asserted by a test in each GPU effect task. `paletteEffect` export name (not `palette`) used consistently in Task 10 and registry. `EFFECT_LIST` order finalized as `[grade, pixelate, bayer, halftone, paletteEffect, floyd]`.
 
 **Known Phase-1 simplifications (documented, acceptable):**
-- CPU-first stacks: `readback` of the source texture reads the default framebuffer (Task 5 note). Unusual ordering; revisit if artifacts appear.
+- `readback` wraps any texture in a throwaway framebuffer, so CPU-first stacks and CPU-final stacks read correctly (no default-framebuffer fallback).
 - regl flat-array palette uniform: fallback to indexed props documented in Task 10.
 - Export renders at working resolution (≤4096 long edge), matching preview; multipliers deferred.
