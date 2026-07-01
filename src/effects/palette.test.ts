@@ -10,10 +10,10 @@ describe('palette effect', () => {
   it('emits one vec3 per palette slot (bw: black, white, then padding) with a count', () => {
     const u = paletteEffect.uniforms({ paletteId: 'bw' }, { palettes: PALETTES }) as Record<string, unknown>
     expect(u.uCount).toBe(2)
-    expect(u['uPalette[0]']).toEqual([0, 0, 0])
-    expect(u['uPalette[1]']).toEqual([1, 1, 1])
-    expect(u['uPalette[2]']).toEqual([0, 0, 0])
-    expect(u['uPalette[15]']).toEqual([0, 0, 0])
+    expect(u.uP0).toEqual([0, 0, 0]) // black
+    expect(u.uP1).toEqual([1, 1, 1]) // white
+    expect(u.uP2).toEqual([0, 0, 0]) // unused slot padded
+    expect(u.uP15).toEqual([0, 0, 0])
   })
   it('falls back to bw when the palette id is unknown', () => {
     const u = paletteEffect.uniforms({ paletteId: 'nope' }, { palettes: PALETTES }) as { uCount: number }

@@ -1680,7 +1680,7 @@ git commit -m "feat: add circular halftone effect"
 
 **Interfaces:**
 - Consumes: `GpuEffect`, `EffectContext`, `PALETTES` (Tasks 3).
-- Produces: `paletteEffect: GpuEffect`, `type: 'palette'`. `uniforms()` returns per-element keys `uPalette[0]`..`uPalette[15]` (each an `[r,g,b]` vec3, unused slots black) plus `uCount`, reading `ctx.palettes[params.paletteId]`.
+- Produces: `paletteEffect: GpuEffect`, `type: 'palette'`. `uniforms()` returns individual keys `uP0`..`uP15` (each an `[r,g,b]` vec3, unused slots black) plus `uCount`, reading `ctx.palettes[params.paletteId]`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1698,10 +1698,10 @@ describe('palette effect', () => {
   it('emits one vec3 per palette slot (bw: black, white, then padding) with a count', () => {
     const u = paletteEffect.uniforms({ paletteId: 'bw' }, { palettes: PALETTES }) as Record<string, unknown>
     expect(u.uCount).toBe(2)
-    expect(u['uPalette[0]']).toEqual([0, 0, 0]) // black
-    expect(u['uPalette[1]']).toEqual([1, 1, 1]) // white
-    expect(u['uPalette[2]']).toEqual([0, 0, 0]) // unused slot padded
-    expect(u['uPalette[15]']).toEqual([0, 0, 0])
+    expect(u.uP0).toEqual([0, 0, 0]) // black
+    expect(u.uP1).toEqual([1, 1, 1]) // white
+    expect(u.uP2).toEqual([0, 0, 0]) // unused slot padded
+    expect(u.uP15).toEqual([0, 0, 0])
   })
   it('falls back to bw when the palette id is unknown', () => {
     const u = paletteEffect.uniforms({ paletteId: 'nope' }, { palettes: PALETTES }) as { uCount: number }
@@ -1724,35 +1724,38 @@ import { PALETTES } from '@/color/palettes'
 
 const MAX = 16
 
+// regl binds array uniforms (`vec3 uPalette[16]`) unreliably (verified in-browser: the
+// pass produced no output). Individual named vec3 uniforms bind reliably — the same path
+// every other effect uses. So declare uP0..uP15 explicitly and pick nearest via an
+// unrolled comparison guarded by uCount.
 const FRAG = `#version 300 es
 precision highp float;
 in vec2 vUv; out vec4 fragColor;
 uniform sampler2D src; uniform vec2 resolution;
-uniform vec3 uPalette[${MAX}];
+uniform vec3 uP0; uniform vec3 uP1; uniform vec3 uP2; uniform vec3 uP3;
+uniform vec3 uP4; uniform vec3 uP5; uniform vec3 uP6; uniform vec3 uP7;
+uniform vec3 uP8; uniform vec3 uP9; uniform vec3 uP10; uniform vec3 uP11;
+uniform vec3 uP12; uniform vec3 uP13; uniform vec3 uP14; uniform vec3 uP15;
 uniform int uCount;
 void main() {
   vec3 c = texture(src, vUv).rgb;
   float best = 1e9; vec3 pick = c;
-  for (int i = 0; i < ${MAX}; i++) {
-    if (i >= uCount) break;
-    vec3 d = c - uPalette[i];
-    float dist = dot(d, d);
-    if (dist < best) { best = dist; pick = uPalette[i]; }
-  }
+  #define CONSIDER(IDX, U) if (IDX < uCount) { vec3 d = c - U; float dd = dot(d, d); if (dd < best) { best = dd; pick = U; } }
+  CONSIDER(0, uP0) CONSIDER(1, uP1) CONSIDER(2, uP2) CONSIDER(3, uP3)
+  CONSIDER(4, uP4) CONSIDER(5, uP5) CONSIDER(6, uP6) CONSIDER(7, uP7)
+  CONSIDER(8, uP8) CONSIDER(9, uP9) CONSIDER(10, uP10) CONSIDER(11, uP11)
+  CONSIDER(12, uP12) CONSIDER(13, uP13) CONSIDER(14, uP14) CONSIDER(15, uP15)
+  #undef CONSIDER
   fragColor = vec4(pick, 1.0);
 }`
 
-// regl expands `uniform vec3 uPalette[16]` into per-element active uniforms named
-// `uPalette[0]`..`uPalette[15]`, and binds uniforms by EXACT name. A single flat
-// `uPalette` key would match no active uniform (silently unbound -> NaN). So we emit
-// one key per element, each a [r,g,b] vec3, padding unused slots with black.
-const PALETTE_KEYS = Array.from({ length: MAX }, (_, i) => `uPalette[${i}]`)
+const PALETTE_KEYS = Array.from({ length: MAX }, (_, i) => `uP${i}`)
 
 function paletteUniforms(palette: Palette): Record<string, unknown> {
   const u: Record<string, unknown> = { uCount: Math.min(palette.colors.length, MAX) }
   for (let i = 0; i < MAX; i++) {
     const c = palette.colors[i]
-    u[`uPalette[${i}]`] = c ? [c[0], c[1], c[2]] : [0, 0, 0]
+    u[`uP${i}`] = c ? [c[0], c[1], c[2]] : [0, 0, 0]
   }
   return u
 }
@@ -1787,7 +1790,7 @@ export const EFFECT_LIST: Effect[] = [grade, pixelate, bayer, halftone, paletteE
 Run: `pnpm test src/effects/palette.test.ts src/effects/registry.test.ts`
 Expected: PASS.
 
-> Implementer note: uniforms are emitted per array element (`uPalette[0]`..`uPalette[15]`), because regl binds array uniforms by their per-element active-uniform names, not a single base name. The generic `quadCommand` declares each key as a `regl.prop`, so bracketed keys flow through unchanged.
+> Implementer note: the palette is passed as 16 individual `vec3` uniforms (`uP0`..`uP15`), NOT a GLSL array. regl was verified in-browser to bind `vec3 uPalette[16]` array uniforms unreliably (the pass produced no output); individual named uniforms use the same reliable path as every other effect. The nearest-color search is unrolled with a `CONSIDER` macro guarded by `uCount`.
 
 - [ ] **Step 5: Commit**
 
