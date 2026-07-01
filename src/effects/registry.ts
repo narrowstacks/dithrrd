@@ -14,8 +14,9 @@ import { clusteredDot } from '@/effects/clusteredDot'
 import { lineScreen } from '@/effects/lineScreen'
 import { crosshatch } from '@/effects/crosshatch'
 import { duotone } from '@/effects/duotone'
+import { perChannel } from '@/effects/perChannel'
 
-export const EFFECT_LIST: Effect[] = [grade, pixelate, bayer, halftone, paletteEffect, floyd, atkinson, jarvis, stucki, sierra, burkes, clusteredDot, lineScreen, crosshatch, duotone]
+export const EFFECT_LIST: Effect[] = [grade, pixelate, bayer, halftone, paletteEffect, floyd, atkinson, jarvis, stucki, sierra, burkes, clusteredDot, lineScreen, crosshatch, duotone, perChannel]
 
 export const registry: Record<string, Effect> = Object.fromEntries(
   EFFECT_LIST.map((e) => [e.type, e]),
