@@ -1,5 +1,7 @@
 import { createStore } from 'zustand/vanilla'
 import { useStore as useZustand } from 'zustand'
+import { temporal } from 'zundo'
+import type { TemporalState } from 'zundo'
 import type { StackNode } from '@/engine/planPasses'
 import type { Palette, ParamValue } from '@/effects/types'
 import type { Preset } from '@/features/preset'
@@ -37,6 +39,8 @@ export interface AppState {
   loadPreset: (preset: Preset) => void
 }
 
+type HistorySlice = Pick<AppState, 'stack' | 'palettes'>
+
 const newId = () => crypto.randomUUID()
 
 function loadInitialPalettes(): Record<string, Palette> {
@@ -53,7 +57,9 @@ function nextCustomName(palettes: Record<string, Palette>): string {
 }
 
 export function createAppStore() {
-  return createStore<AppState>((set, get) => ({
+  return createStore<AppState>()(
+    temporal(
+      (set, get) => ({
     source: null,
     stack: [],
     selectedId: null,
@@ -182,7 +188,32 @@ export function createAppStore() {
         const stack = preset.stack.map((n) => ({ ...n, params: { ...n.params } }))
         return { palettes, stack, selectedId: stack[0]?.id ?? null }
       }),
-  }))
+      }),
+      {
+        partialize: (s): HistorySlice => ({ stack: s.stack, palettes: s.palettes }),
+        limit: 100,
+        // Skip recording when neither stack nor palettes changed (e.g. selection,
+        // eyedropper, panel toggles). References are always fresh on real edits.
+        equality: (a, b) => a.stack === b.stack && a.palettes === b.palettes,
+        // Coalesce a burst of rapid edits (slider drag, hex typing) into ONE undo
+        // step: capture the state before the burst began, then commit once the
+        // edits go idle for 400ms.
+        handleSet: (handleSet) => {
+          let timer: ReturnType<typeof setTimeout> | undefined
+          let firstPrev: HistorySlice | undefined
+          return (pastState) => {
+            firstPrev ??= pastState as HistorySlice
+            clearTimeout(timer)
+            timer = setTimeout(() => {
+              if (firstPrev) handleSet(firstPrev)
+              firstPrev = undefined
+              timer = undefined
+            }, 400)
+          }
+        },
+      },
+    ),
+  )
 }
 
 export const appStore = createAppStore()
@@ -197,3 +228,5 @@ appStore.subscribe((s) => {
 })
 
 export const useStore = <T>(selector: (s: AppState) => T): T => useZustand(appStore, selector)
+export const useTemporal = <T>(selector: (s: TemporalState<HistorySlice>) => T): T =>
+  useZustand(appStore.temporal, selector)
