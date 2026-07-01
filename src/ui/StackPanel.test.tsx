@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StackPanel } from '@/ui/StackPanel'
 import { appStore } from '@/store/store'
@@ -24,5 +25,11 @@ describe('StackPanel', () => {
     render(<StackPanel />)
     await user.click(screen.getByRole('button', { name: /remove/i }))
     expect(appStore.getState().stack).toHaveLength(0)
+  })
+
+  it('opens the add menu when store.addMenuOpen becomes true', async () => {
+    render(<StackPanel />)
+    act(() => appStore.getState().setAddMenuOpen(true))
+    expect(await screen.findByRole('menuitem', { name: /bayer/i })).toBeInTheDocument()
   })
 })
