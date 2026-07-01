@@ -4,6 +4,7 @@ import type { StackNode } from '@/engine/planPasses'
 import type { Palette, ParamValue } from '@/effects/types'
 import { registry } from '@/effects/registry'
 import { PALETTES } from '@/color/palettes'
+import { loadCustomPalettes, saveCustomPalettes } from '@/features/paletteStorage'
 
 export interface SourceImage {
   image: ImageData
@@ -24,16 +25,33 @@ export interface AppState {
   duplicateNode: (id: string) => void
   updateParam: (id: string, key: string, value: ParamValue) => void
   selectNode: (id: string | null) => void
+  addPalette: () => string
+  updatePalette: (id: string, patch: { name?: string; colors?: [number, number, number][] }) => void
+  removePalette: (id: string) => void
+  duplicatePalette: (id: string) => string
 }
 
 const newId = () => crypto.randomUUID()
 
+function loadInitialPalettes(): Record<string, Palette> {
+  const custom = Object.fromEntries(loadCustomPalettes().map((p) => [p.id, p]))
+  return { ...PALETTES, ...custom }
+}
+
+function nextCustomName(palettes: Record<string, Palette>): string {
+  const used = new Set(Object.values(palettes).map((p) => p.name))
+  for (let i = 1; ; i++) {
+    const name = `Custom ${i}`
+    if (!used.has(name)) return name
+  }
+}
+
 export function createAppStore() {
-  return createStore<AppState>((set) => ({
+  return createStore<AppState>((set, get) => ({
     source: null,
     stack: [],
     selectedId: null,
-    palettes: PALETTES,
+    palettes: loadInitialPalettes(),
 
     setSource: (source) => set({ source }),
 
@@ -91,8 +109,61 @@ export function createAppStore() {
       })),
 
     selectNode: (id) => set({ selectedId: id }),
+
+    addPalette: () => {
+      const id = newId()
+      set((s) => ({
+        palettes: {
+          ...s.palettes,
+          [id]: { id, name: nextCustomName(s.palettes), colors: [[0, 0, 0], [1, 1, 1]] },
+        },
+      }))
+      return id
+    },
+
+    updatePalette: (id, patch) =>
+      set((s) => {
+        const p = s.palettes[id]
+        if (!p) return s
+        return { palettes: { ...s.palettes, [id]: { ...p, ...patch } } }
+      }),
+
+    removePalette: (id) =>
+      set((s) => {
+        if (id in PALETTES || !(id in s.palettes)) return s
+        const next = { ...s.palettes }
+        delete next[id]
+        return { palettes: next }
+      }),
+
+    duplicatePalette: (id) => {
+      const src = get().palettes[id]
+      if (!src) return ''
+      const copyId = newId()
+      set((s) => ({
+        palettes: {
+          ...s.palettes,
+          [copyId]: {
+            id: copyId,
+            name: `${src.name} copy`,
+            colors: src.colors.map((c) => [c[0], c[1], c[2]] as [number, number, number]),
+          },
+        },
+      }))
+      return copyId
+    },
   }))
 }
 
 export const appStore = createAppStore()
+
+// Persist the custom (non-built-in) palettes whenever the palette map changes.
+// Subscription lives on the singleton only, so createAppStore() stays side-effect free for tests.
+let lastPalettes = appStore.getState().palettes
+appStore.subscribe((s) => {
+  if (s.palettes === lastPalettes) return
+  lastPalettes = s.palettes
+  saveCustomPalettes(Object.values(s.palettes).filter((p) => !(p.id in PALETTES)))
+})
+
 export const useStore = <T>(selector: (s: AppState) => T): T => useZustand(appStore, selector)

@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { createAppStore } from '@/store/store'
+import { PALETTES } from '@/color/palettes'
+import { loadCustomPalettes } from '@/features/paletteStorage'
 
 describe('app store', () => {
   it('adds a node with default params and selects it', () => {
@@ -57,5 +59,62 @@ describe('app store', () => {
     s.getState().removeNode(id)
     expect(s.getState().stack).toHaveLength(0)
     expect(s.getState().selectedId).toBeNull()
+  })
+})
+
+describe('app store — palettes', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('starts with the built-in palettes', () => {
+    const s = createAppStore()
+    expect(Object.keys(s.getState().palettes).sort()).toEqual(Object.keys(PALETTES).sort())
+  })
+
+  it('addPalette creates a custom palette with a black+white default and returns its id', () => {
+    const s = createAppStore()
+    const id = s.getState().addPalette()
+    const p = s.getState().palettes[id]
+    expect(p).toBeTruthy()
+    expect(p.colors).toEqual([[0, 0, 0], [1, 1, 1]])
+    expect(id in PALETTES).toBe(false)
+  })
+
+  it('updatePalette merges name and colors', () => {
+    const s = createAppStore()
+    const id = s.getState().addPalette()
+    s.getState().updatePalette(id, { name: 'Sunset', colors: [[1, 0, 0]] })
+    expect(s.getState().palettes[id]).toMatchObject({ name: 'Sunset', colors: [[1, 0, 0]] })
+  })
+
+  it('removePalette deletes a custom palette but ignores built-ins', () => {
+    const s = createAppStore()
+    const id = s.getState().addPalette()
+    s.getState().removePalette(id)
+    expect(s.getState().palettes[id]).toBeUndefined()
+    s.getState().removePalette('bw')
+    expect(s.getState().palettes.bw).toBeTruthy() // built-in survives
+  })
+
+  it('duplicatePalette copies (built-in or custom) into a new custom palette', () => {
+    const s = createAppStore()
+    const id = s.getState().duplicatePalette('gameboy')
+    expect(id).not.toBe('gameboy')
+    expect(id in PALETTES).toBe(false)
+    expect(s.getState().palettes[id].colors).toEqual(PALETTES.gameboy.colors)
+    expect(s.getState().palettes[id].colors).not.toBe(PALETTES.gameboy.colors) // deep copy
+    expect(s.getState().palettes[id].name).toMatch(/copy/i)
+  })
+})
+
+describe('app store — palette persistence (singleton)', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('persists custom palettes (not built-ins) via the exported appStore', async () => {
+    const { appStore } = await import('@/store/store')
+    const id = appStore.getState().addPalette()
+    const persisted = loadCustomPalettes()
+    expect(persisted.map((p) => p.id)).toContain(id)
+    expect(persisted.some((p) => p.id in PALETTES)).toBe(false)
+    appStore.getState().removePalette(id) // cleanup shared singleton state
   })
 })
