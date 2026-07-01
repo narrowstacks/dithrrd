@@ -22,7 +22,12 @@ as a genuinely useful, highly customizable tool for anyone. Fully client-side, n
 ## Tech Stack
 
 - **pnpm** — package manager (all scripts and installs use pnpm).
-- **Vite + React + TypeScript** — app shell and build.
+- **Vite + React + TypeScript** — app shell and build. Deployed to **Vercel as static
+  output** (no server). Vite is chosen over Next.js deliberately: this is a 100%
+  client-side WebGL editor, so SSR adds no value while actively fighting browser-only
+  libraries (regl/WebGL2/canvas/Web Workers all require `window`). Server-side features
+  we might want later (e.g. dynamic OG preview images for shared preset URLs) can be
+  added as standalone Vercel serverless functions without adopting Next.
 - **Tailwind CSS + shadcn/ui** — all interface components.
 - **regl** — functional WebGL2 wrapper for the multi-pass shader pipeline (chosen for
   clean, declarative ping-pong render targets and low overhead).

@@ -33,3 +33,6 @@ These are candidate enhancements once the three planned phases land — not comm
 - Undo/redo history panel with named checkpoints.
 - Performance: WebGL → WebGPU compute path for GPU-side error diffusion (removes the
   CPU readback for those effects).
+- Dynamic OG preview images for shared preset URLs, via a standalone Vercel serverless
+  function (renders the shared look server-side for link unfurls) — no framework change
+  needed.
