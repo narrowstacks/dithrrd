@@ -1,4 +1,4 @@
-import { Plus, Copy, Trash2 } from 'lucide-react'
+import { Plus, Copy, Trash2, Download, Upload } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import {
 import { useStore } from '@/store/store'
 import { PALETTES } from '@/color/palettes'
 import { PaletteEditor } from '@/ui/PaletteEditor'
+import { downloadPalette, parsePaletteJson } from '@/features/paletteFile'
 
 interface PaletteControlProps {
   label: string
@@ -39,13 +40,49 @@ export function PaletteControl({ label, value, onChange }: PaletteControlProps) 
         </SelectContent>
       </Select>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <Button variant="outline" size="sm" onClick={() => onChange(addPalette())}>
           <Plus className="mr-1 size-3" /> New palette
         </Button>
         <Button variant="outline" size="sm" onClick={() => onChange(duplicatePalette(value))}>
           <Copy className="mr-1 size-3" /> Duplicate
         </Button>
+        {current && (
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="Export palette"
+            onClick={() => downloadPalette(current)}
+          >
+            <Download className="size-3.5" />
+          </Button>
+        )}
+        <label className="cursor-pointer">
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            aria-label="Import palette"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              if (!f) return
+              f.text().then((text) => {
+                try {
+                  const { name, colors } = parsePaletteJson(text)
+                  const id = addPalette()
+                  updatePalette(id, { name, colors })
+                  onChange(id)
+                } catch {
+                  // ignore malformed import; a toast could be added later
+                }
+              })
+            }}
+          />
+          <span className="inline-flex h-8 items-center rounded-lg border px-2.5 text-sm hover:bg-accent">
+            <Upload className="size-3.5" />
+          </span>
+        </label>
       </div>
 
       {current && !isBuiltin && (
