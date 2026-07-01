@@ -31,6 +31,9 @@ void main() {
 
   float L = max(uLevels, 2.0);
   if (uDither > 0.5) {
+    // Bayer offset is sampled at screen-pixel resolution (not per cell) on purpose:
+    // it breaks posterize banding with fine sub-block texture rather than checkerboarding
+    // whole blocks. Index by cell (floor(vUv/cell)) instead if a flat pixel-art look is wanted.
     ivec2 pix = ivec2(vUv * resolution);
     int x = int(mod(float(pix.x), 4.0));
     int y = int(mod(float(pix.y), 4.0));
