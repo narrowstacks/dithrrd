@@ -32,6 +32,13 @@ describe('matchShortcut', () => {
     expect(matchShortcut(d({ key: '?' , shift: true }), SHORTCUTS, true)?.id).toBe('help')
   })
 
+  it('matches zoom combos with both unshifted and shifted characters', () => {
+    expect(matchShortcut(d({ key: '=' }), SHORTCUTS, true)?.id).toBe('zoomIn')
+    expect(matchShortcut(d({ key: '+', shift: true }), SHORTCUTS, true)?.id).toBe('zoomIn')
+    expect(matchShortcut(d({ key: '-' }), SHORTCUTS, true)?.id).toBe('zoomOut')
+    expect(matchShortcut(d({ key: '_', shift: true }), SHORTCUTS, true)?.id).toBe('zoomOut')
+  })
+
   it('does not match a bare letter as its ⌘ counterpart', () => {
     expect(matchShortcut(d({ key: 'z' }), SHORTCUTS, true)).toBeNull()
   })
