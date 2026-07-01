@@ -634,9 +634,10 @@ describe('floydSteinberg', () => {
   })
 
   it('diffuses error to the neighbor to the right', () => {
-    // Two mid-gray pixels in a row. First rounds to 0 (err +128 -> mostly right),
-    // pushing the right pixel brighter so it rounds to 255.
-    const buf = new Uint8ClampedArray([128, 128, 128, 255, 128, 128, 128, 255])
+    // Two gray pixels just below the 127.5 rounding midpoint. The first rounds
+    // to 0 (err +127 -> mostly right), pushing the right pixel brighter so it
+    // rounds to 255. (127 not 128: 128/255 rounds UP to white, which would invert this.)
+    const buf = new Uint8ClampedArray([127, 127, 127, 255, 127, 127, 127, 255])
     floydSteinberg(buf, 2, 1, { levels: 2, serpentine: false })
     expect(buf[0]).toBe(0)
     expect(buf[4]).toBe(255)
