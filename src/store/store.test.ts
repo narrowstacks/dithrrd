@@ -118,3 +118,24 @@ describe('app store — palette persistence (singleton)', () => {
     appStore.getState().removePalette(id) // cleanup shared singleton state
   })
 })
+
+describe('app store — eyedropper', () => {
+  beforeEach(() => localStorage.clear())
+  it('starts, applies to the targeted swatch, and clears', () => {
+    const s = createAppStore()
+    const id = s.getState().addPalette() // [[0,0,0],[1,1,1]]
+    s.getState().startEyedropper(id, 1)
+    expect(s.getState().eyedropper).toEqual({ paletteId: id, index: 1 })
+    s.getState().applyEyedropper([0.25, 0.5, 0.75])
+    expect(s.getState().palettes[id].colors[1]).toEqual([0.25, 0.5, 0.75])
+    expect(s.getState().eyedropper).toBeNull()
+  })
+  it('cancel clears the target without changing colors', () => {
+    const s = createAppStore()
+    const id = s.getState().addPalette()
+    s.getState().startEyedropper(id, 0)
+    s.getState().cancelEyedropper()
+    expect(s.getState().eyedropper).toBeNull()
+    expect(s.getState().palettes[id].colors[0]).toEqual([0, 0, 0])
+  })
+})

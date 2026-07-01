@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, ArrowLeft, ArrowRight, Plus } from 'lucide-react'
+import { X, ArrowLeft, ArrowRight, Plus, Pipette } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useStore } from '@/store/store'
@@ -13,6 +13,8 @@ const MAX_SWATCHES = 16
 export function PaletteEditor({ paletteId }: { paletteId: string }) {
   const palette = useStore((s) => s.palettes[paletteId])
   const updatePalette = useStore((s) => s.updatePalette)
+  const startEyedropper = useStore((s) => s.startEyedropper)
+  const eyedropper = useStore((s) => s.eyedropper)
   if (!palette) return null
 
   const isBuiltin = paletteId in PALETTES
@@ -54,6 +56,8 @@ export function PaletteEditor({ paletteId }: { paletteId: string }) {
             onColor={(rgb) => setColors(palette.colors.map((x, j) => (j === i ? rgb : x)))}
             onRemove={() => removeSwatch(i)}
             onMove={(dir) => move(i, dir)}
+            onEyedrop={() => startEyedropper(paletteId, i)}
+            picking={eyedropper?.paletteId === paletteId && eyedropper?.index === i}
           />
         ))}
       </ul>
@@ -77,9 +81,11 @@ interface SwatchRowProps {
   onColor: (rgb: RGB) => void
   onRemove: () => void
   onMove: (dir: -1 | 1) => void
+  onEyedrop: () => void
+  picking: boolean
 }
 
-function SwatchRow({ index, color, count, onColor, onRemove, onMove }: SwatchRowProps) {
+function SwatchRow({ index, color, count, onColor, onRemove, onMove, onEyedrop, picking }: SwatchRowProps) {
   const hex = rgb01ToHex(color)
   // Local text state so an in-progress invalid hex (mid-typing) doesn't clobber the field.
   const [text, setText] = useState(hex)
@@ -105,6 +111,15 @@ function SwatchRow({ index, color, count, onColor, onRemove, onMove }: SwatchRow
           if (isValidHex(v)) onColor(hexToRgb01(v))
         }}
       />
+      <button
+        type="button"
+        aria-label={`Eyedrop swatch ${index + 1}`}
+        aria-pressed={picking}
+        className={`hover:text-foreground disabled:opacity-30 ${picking ? 'text-primary' : 'text-muted-foreground'}`}
+        onClick={onEyedrop}
+      >
+        <Pipette className="size-3.5" />
+      </button>
       <button
         type="button"
         aria-label="Move swatch left"

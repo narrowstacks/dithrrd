@@ -17,6 +17,7 @@ export interface AppState {
   stack: StackNode[]
   selectedId: string | null
   palettes: Record<string, Palette>
+  eyedropper: { paletteId: string; index: number } | null
   setSource: (source: SourceImage) => void
   addNode: (type: string) => void
   removeNode: (id: string) => void
@@ -29,6 +30,9 @@ export interface AppState {
   updatePalette: (id: string, patch: { name?: string; colors?: [number, number, number][] }) => void
   removePalette: (id: string) => void
   duplicatePalette: (id: string) => string
+  startEyedropper: (paletteId: string, index: number) => void
+  cancelEyedropper: () => void
+  applyEyedropper: (rgb: [number, number, number]) => void
 }
 
 const newId = () => crypto.randomUUID()
@@ -52,6 +56,7 @@ export function createAppStore() {
     stack: [],
     selectedId: null,
     palettes: loadInitialPalettes(),
+    eyedropper: null,
 
     setSource: (source) => set({ source }),
 
@@ -152,6 +157,18 @@ export function createAppStore() {
       }))
       return copyId
     },
+
+    startEyedropper: (paletteId, index) => set({ eyedropper: { paletteId, index } }),
+    cancelEyedropper: () => set({ eyedropper: null }),
+    applyEyedropper: (rgb) =>
+      set((s) => {
+        const t = s.eyedropper
+        if (!t) return s
+        const p = s.palettes[t.paletteId]
+        if (!p) return { eyedropper: null }
+        const colors = p.colors.map((c, j) => (j === t.index ? rgb : c))
+        return { palettes: { ...s.palettes, [t.paletteId]: { ...p, colors } }, eyedropper: null }
+      }),
   }))
 }
 
