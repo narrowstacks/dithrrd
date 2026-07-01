@@ -71,3 +71,21 @@ describe('diffuse (generic engine)', () => {
     expect(buf[3]).toBe(128)
   })
 })
+
+describe('atkinson kernel', () => {
+  it('snaps a single mid-gray pixel to black or white at 2 levels', () => {
+    const buf = new Uint8ClampedArray([100, 100, 100, 255])
+    diffuse(buf, 1, 1, { levels: 2, serpentine: false }, KERNELS.atkinson)
+    expect([0, 255]).toContain(buf[0])
+    expect(buf[0]).toBe(buf[1])
+    expect(buf[3]).toBe(255)
+  })
+  it('leaves pure black and pure white unchanged at 2 levels', () => {
+    const black = new Uint8ClampedArray([0, 0, 0, 255])
+    diffuse(black, 1, 1, { levels: 2, serpentine: false }, KERNELS.atkinson)
+    expect(black[0]).toBe(0)
+    const white = new Uint8ClampedArray([255, 255, 255, 255])
+    diffuse(white, 1, 1, { levels: 2, serpentine: false }, KERNELS.atkinson)
+    expect(white[0]).toBe(255)
+  })
+})
