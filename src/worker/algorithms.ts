@@ -140,4 +140,11 @@ export const KERNELS: Record<string, DiffusionKernel> = {
       { dx: -1, dy: 2, w: 2 }, { dx: 0, dy: 2, w: 3 }, { dx: 1, dy: 2, w: 2 },
     ],
   },
+  burkes: {
+    divisor: 32,
+    cells: [
+      { dx: 1, dy: 0, w: 8 }, { dx: 2, dy: 0, w: 4 },
+      { dx: -2, dy: 1, w: 2 }, { dx: -1, dy: 1, w: 4 }, { dx: 0, dy: 1, w: 8 }, { dx: 1, dy: 1, w: 4 }, { dx: 2, dy: 1, w: 2 },
+    ],
+  },
 }
