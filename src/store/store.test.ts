@@ -104,6 +104,13 @@ describe('app store — palettes', () => {
     expect(s.getState().palettes[id].colors).not.toBe(PALETTES.gameboy.colors) // deep copy
     expect(s.getState().palettes[id].name).toMatch(/copy/i)
   })
+
+  it('updatePalette refuses to modify built-in palettes', () => {
+    const s = createAppStore()
+    const originalName = s.getState().palettes.bw.name
+    s.getState().updatePalette('bw', { name: 'X' })
+    expect(s.getState().palettes.bw.name).toBe(originalName)
+  })
 })
 
 describe('app store — palette persistence (singleton)', () => {

@@ -18,4 +18,9 @@ describe('paletteFile', () => {
     const many = { name: 'big', colors: Array.from({ length: 20 }, () => [0, 0, 0]) }
     expect(parsePaletteJson(JSON.stringify(many)).colors).toHaveLength(16)
   })
+
+  it('clamps channel values to [0, 1]', () => {
+    const result = parsePaletteJson(JSON.stringify({ name: 'x', colors: [[2, -1, 0.5]] }))
+    expect(result.colors).toEqual([[1, 0, 0.5]])
+  })
 })

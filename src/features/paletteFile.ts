@@ -19,7 +19,9 @@ export function parsePaletteJson(text: string): { name: string; colors: RGB[] } 
   ) {
     throw new Error('palette file has invalid colors')
   }
-  return { name: o.name, colors: (o.colors as RGB[]).slice(0, 16) }
+  const clamp = (n: number) => Math.min(1, Math.max(0, n))
+  const colors = (o.colors as RGB[]).map(([r, g, b]) => [clamp(r), clamp(g), clamp(b)] as RGB).slice(0, 16)
+  return { name: o.name, colors }
 }
 
 export function downloadPalette(palette: Palette): void {

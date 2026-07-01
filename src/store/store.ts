@@ -128,6 +128,7 @@ export function createAppStore() {
 
     updatePalette: (id, patch) =>
       set((s) => {
+        if (id in PALETTES) return s
         const p = s.palettes[id]
         if (!p) return s
         return { palettes: { ...s.palettes, [id]: { ...p, ...patch } } }

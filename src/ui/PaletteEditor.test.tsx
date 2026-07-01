@@ -49,4 +49,16 @@ describe('PaletteEditor', () => {
     expect(screen.queryAllByLabelText(/swatch \d+ hex/i)).toHaveLength(0)
     expect(screen.getByText(/duplicate/i)).toBeInTheDocument()
   })
+
+  it('toggles eyedropper on and off by clicking the same swatch button', () => {
+    const id = appStore.getState().addPalette()
+    render(<PaletteEditor paletteId={id} />)
+    const eyedropButtons = screen.getAllByRole('button', { name: /eyedrop swatch/i })
+    // Click to start eyedropper on swatch 1
+    fireEvent.click(eyedropButtons[0])
+    expect(appStore.getState().eyedropper).toEqual({ paletteId: id, index: 0 })
+    // Click the same button again to cancel
+    fireEvent.click(eyedropButtons[0])
+    expect(appStore.getState().eyedropper).toBeNull()
+  })
 })

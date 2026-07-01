@@ -14,6 +14,7 @@ export function PaletteEditor({ paletteId }: { paletteId: string }) {
   const palette = useStore((s) => s.palettes[paletteId])
   const updatePalette = useStore((s) => s.updatePalette)
   const startEyedropper = useStore((s) => s.startEyedropper)
+  const cancelEyedropper = useStore((s) => s.cancelEyedropper)
   const eyedropper = useStore((s) => s.eyedropper)
   if (!palette) return null
 
@@ -56,7 +57,7 @@ export function PaletteEditor({ paletteId }: { paletteId: string }) {
             onColor={(rgb) => setColors(palette.colors.map((x, j) => (j === i ? rgb : x)))}
             onRemove={() => removeSwatch(i)}
             onMove={(dir) => move(i, dir)}
-            onEyedrop={() => startEyedropper(paletteId, i)}
+            onEyedrop={() => (eyedropper?.paletteId === paletteId && eyedropper?.index === i ? cancelEyedropper() : startEyedropper(paletteId, i))}
             picking={eyedropper?.paletteId === paletteId && eyedropper?.index === i}
           />
         ))}

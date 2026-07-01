@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useStore } from '@/store/store'
+import { useStore, appStore } from '@/store/store'
 import { planPasses } from '@/engine/planPasses'
 import { execute } from '@/engine/execute'
 import { createReglBackend, type Backend } from '@/engine/backend'
@@ -102,6 +102,19 @@ export function Viewport({ onReady }: ViewportProps) {
       window.clearTimeout(indicatorTimerRef.current)
     }
   }, [source, stack, palettes])
+
+  // Escape-to-cancel eyedropper when armed.
+  useEffect(() => {
+    if (!eyedropper) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        appStore.getState().cancelEyedropper()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [eyedropper])
 
   const onCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!eyedropper || !source) return
