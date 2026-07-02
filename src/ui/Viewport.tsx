@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react'
 import {
   TransformWrapper,
   TransformComponent,
@@ -157,6 +157,26 @@ export function Viewport(props: ViewportProps) {
     return () => ro.disconnect()
   }, [source])
 
+  // Center/fit synchronously BEFORE paint on a source change, to avoid a
+  // one-frame flash of the canvas at scale 1 pinned to the wrapper's top-left
+  // (the ResizeObserver below only centers on its async callback). The backend
+  // effect that sizes the canvas is a passive effect and thus runs AFTER this
+  // layout effect, so we size the canvas here from the known source dims first
+  // (same value the backend effect will set) so computeFit() isn't reading a
+  // zero/stale canvas. This only pokes the library transform (imperative) — the
+  // one setFitScale keeps minScale in sync and is keyed on [source], so it
+  // settles in a single pass and cannot form a transform→state→resize loop.
+  useLayoutEffect(() => {
+    if (!source) return
+    if (!zoomRef.current || !containerRef.current || !canvasRef.current) return
+    const canvas = canvasRef.current
+    if (canvas.width !== source.width) canvas.width = source.width
+    if (canvas.height !== source.height) canvas.height = source.height
+    const s = computeFit()
+    setFitScale(s)
+    zoomRef.current.centerView(s, 0)
+  }, [source])
+
   // Escape-to-cancel eyedropper when armed.
   useEffect(() => {
     if (!eyedropper) return
@@ -177,7 +197,11 @@ export function Viewport(props: ViewportProps) {
       in: () => zoomRef.current?.zoomIn(),
       out: () => zoomRef.current?.zoomOut(),
       fit: () => zoomRef.current?.centerView(computeFit()),
-      reset: () => zoomRef.current?.centerView(1),
+      // Fit-aware 100%: for large images fitScale<1 so this is a true 100%; for
+      // images smaller than the viewport it clamps up to the fit floor so reset
+      // can never shrink the image below "whole image fits" (the library's
+      // built-in reset ignores minScale/checkZoomBounds).
+      reset: () => zoomRef.current?.centerView(Math.max(1, computeFit())),
     }
     return () => {
       zoomApiRef.current = null
@@ -232,7 +256,7 @@ export function Viewport(props: ViewportProps) {
         maxScale={Math.max(fitScale, 1) * 20}
         limitToBounds
         centerZoomedOut
-        doubleClick={{ mode: 'reset' }}
+        doubleClick={{ disabled: true }}
         wheel={{ step: 0.15 }}
         panning={{ velocityDisabled: true }}
         onTransform={(_, state) => {
