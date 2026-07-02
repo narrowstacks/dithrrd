@@ -1,11 +1,12 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
 import { AppShell, hasWebGL2, WebGL2Fallback } from '@/ui/AppShell'
 import { Toolbar } from '@/ui/Toolbar'
-import { Viewport } from '@/ui/Viewport'
+import { Viewport, type ZoomApi } from '@/ui/Viewport'
 import { StackPanel } from '@/ui/StackPanel'
 import { ControlsPanel } from '@/ui/ControlsPanel'
+import { ShortcutsDialog } from '@/ui/ShortcutsDialog'
 import { useStore } from '@/store/store'
 import { decodeToWorkingImage } from '@/features/image'
 import { exportCurrentPng } from '@/features/exportPng'
@@ -19,7 +20,10 @@ export default function App() {
   const stack = useStore((s) => s.stack)
   const palettes = useStore((s) => s.palettes)
   const loadPreset = useStore((s) => s.loadPreset)
+  const setHelpOpen = useStore((s) => s.setHelpOpen)
   const apiRef = useRef<{ backend: Backend; runCpu: RunCpu } | null>(null)
+  const zoomApiRef = useRef<ZoomApi | null>(null)
+  const [zoomPct, setZoomPct] = useState(100)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -65,12 +69,16 @@ export default function App() {
             onReset={() => location.reload()}
             onExport={onExport}
             canExport={!!source}
+            zoomPct={Math.round(zoomPct * 100)}
+            onZoomFit={() => zoomApiRef.current?.fit()}
+            onShowHelp={() => setHelpOpen(true)}
           />
         }
         stack={<StackPanel />}
-        viewport={<Viewport onReady={(api) => (apiRef.current = api)} />}
+        viewport={<Viewport onReady={(api) => (apiRef.current = api)} zoomApiRef={zoomApiRef} onZoomChange={(scale) => setZoomPct(scale)} />}
         controls={<ControlsPanel />}
       />
+      <ShortcutsDialog />
       <Toaster position="bottom-center" />
     </>
   )
