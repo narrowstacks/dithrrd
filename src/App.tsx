@@ -23,7 +23,7 @@ export default function App() {
   const setHelpOpen = useStore((s) => s.setHelpOpen)
   const apiRef = useRef<{ backend: Backend; runCpu: RunCpu } | null>(null)
   const zoomApiRef = useRef<ZoomApi | null>(null)
-  const [zoomPct, setZoomPct] = useState(100)
+  const [zoomPct, setZoomPct] = useState(1)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
