@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import {
+  TransformWrapper,
+  TransformComponent,
+  type ReactZoomPanPinchContentRef,
+} from 'react-zoom-pan-pinch'
 import { useStore, appStore } from '@/store/store'
 import { planPasses } from '@/engine/planPasses'
 import { execute } from '@/engine/execute'
@@ -6,12 +11,23 @@ import { createReglBackend, type Backend } from '@/engine/backend'
 import { registry } from '@/effects/registry'
 import { createRunCpu, type RunCpu } from '@/worker/runCpu'
 import { ProcessingOverlay } from '@/ui/ProcessingOverlay'
+import { clientToSourcePixel } from '@/features/viewportMath'
+
+export interface ZoomApi {
+  in: () => void
+  out: () => void
+  fit: () => void
+  reset: () => void
+}
 
 interface ViewportProps {
   onReady?: (api: { backend: Backend; runCpu: RunCpu } | null) => void
+  zoomApiRef?: MutableRefObject<ZoomApi | null>
+  onZoomChange?: (scale: number) => void
 }
 
-export function Viewport({ onReady }: ViewportProps) {
+export function Viewport(props: ViewportProps) {
+  const { onReady, zoomApiRef, onZoomChange } = props
   const source = useStore((s) => s.source)
   const stack = useStore((s) => s.stack)
   const palettes = useStore((s) => s.palettes)
@@ -21,6 +37,8 @@ export function Viewport({ onReady }: ViewportProps) {
   const backendRef = useRef<(Backend & { dispose(): void }) | null>(null)
   const cpuRef = useRef<ReturnType<typeof createRunCpu> | null>(null)
   const rafRef = useRef<number>(0)
+  const zoomRef = useRef<ReactZoomPanPinchContentRef | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   // Monotonic render id. Guards against presenting a superseded/older render
   // (out-of-order) or one whose backend was disposed on a source change.
   const genRef = useRef(0)
@@ -116,24 +134,47 @@ export function Viewport({ onReady }: ViewportProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [eyedropper])
 
+  // Publish an imperative zoom API for toolbar controls (in/out/fit/reset).
+  useEffect(() => {
+    if (!zoomApiRef) return
+    const fitScale = () => {
+      const canvas = canvasRef.current
+      const box = containerRef.current
+      if (!canvas || !box) return 1
+      return Math.min(box.clientWidth / canvas.width, box.clientHeight / canvas.height)
+    }
+    zoomApiRef.current = {
+      in: () => zoomRef.current?.zoomIn(),
+      out: () => zoomRef.current?.zoomOut(),
+      fit: () => zoomRef.current?.centerView(fitScale()),
+      reset: () => zoomRef.current?.centerView(1),
+    }
+    return () => {
+      zoomApiRef.current = null
+    }
+  }, [zoomApiRef])
+
   const onCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!eyedropper || !source) return
-    const canvas = e.currentTarget
-    const rect = canvas.getBoundingClientRect()
-    // object-contain letterboxes: compute the drawn image rect inside the element.
-    const scale = Math.min(rect.width / source.width, rect.height / source.height)
-    const drawnW = source.width * scale
-    const drawnH = source.height * scale
-    const offX = (rect.width - drawnW) / 2
-    const offY = (rect.height - drawnH) / 2
-    const px = Math.floor(((e.clientX - rect.left - offX) / drawnW) * source.width)
-    const py = Math.floor(((e.clientY - rect.top - offY) / drawnH) * source.height)
-    if (px < 0 || py < 0 || px >= source.width || py >= source.height) {
-      // out of image bounds: ignore (do not call)
-      return
-    }
+    const instance = zoomRef.current?.instance
+    const wrapper = instance?.wrapperComponent
+    const t = instance?.state
+    if (!wrapper || !t) return
+    const rect = wrapper.getBoundingClientRect()
+    const px = clientToSourcePixel({
+      clientX: e.clientX,
+      clientY: e.clientY,
+      rectLeft: rect.left,
+      rectTop: rect.top,
+      positionX: t.positionX,
+      positionY: t.positionY,
+      scale: t.scale,
+      width: source.width,
+      height: source.height,
+    })
+    if (!px) return
     // Sampling uses the ORIGINAL source.image, not the dithered output.
-    const i = (py * source.width + px) * 4
+    const i = (px.y * source.width + px.x) * 4
     const d = source.image.data
     applyEyedropper([d[i] / 255, d[i + 1] / 255, d[i + 2] / 255])
   }
@@ -148,19 +189,36 @@ export function Viewport({ onReady }: ViewportProps) {
 
   return (
     <div
-      className="relative flex h-full w-full items-center justify-center overflow-hidden p-4"
+      ref={containerRef}
+      className="relative h-full w-full overflow-hidden"
       style={{
-        backgroundImage:
-          'repeating-conic-gradient(#00000010 0% 25%, transparent 0% 50%)',
+        backgroundImage: 'repeating-conic-gradient(#00000010 0% 25%, transparent 0% 50%)',
         backgroundSize: '20px 20px',
       }}
     >
-      <canvas
-        ref={canvasRef}
-        onClick={onCanvasClick}
-        className="max-h-full max-w-full object-contain shadow-sm"
-        style={{ imageRendering: 'auto', cursor: eyedropper ? 'crosshair' : undefined }}
-      />
+      <TransformWrapper
+        ref={zoomRef}
+        minScale={0.1}
+        maxScale={40}
+        limitToBounds={false}
+        centerOnInit
+        doubleClick={{ mode: 'reset' }}
+        wheel={{ step: 0.15 }}
+        panning={{ velocityDisabled: true }}
+        onTransform={(_, state) => onZoomChange?.(state.scale)}
+      >
+        <TransformComponent
+          wrapperClass="!h-full !w-full"
+          contentClass="!h-full !w-full items-center justify-center"
+        >
+          <canvas
+            ref={canvasRef}
+            onClick={onCanvasClick}
+            className="max-h-full max-w-full object-contain shadow-sm"
+            style={{ cursor: eyedropper ? 'crosshair' : undefined }}
+          />
+        </TransformComponent>
+      </TransformWrapper>
       <ProcessingOverlay show={rendering} />
     </div>
   )
