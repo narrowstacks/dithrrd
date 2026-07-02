@@ -45,6 +45,23 @@ export function Viewport(props: ViewportProps) {
   // Latest indicator timer, tracked only so effect cleanup can cancel it.
   const indicatorTimerRef = useRef<number>(0)
   const [rendering, setRendering] = useState(false)
+  // Scale at which the whole image fits the viewport. Doubles as the zoom-out
+  // floor (minScale) so the image can never be shrunk into the void. Recomputed
+  // on source change and container resize (see the ResizeObserver effect below).
+  const [fitScale, setFitScale] = useState(1)
+
+  // fitScale = min(container/source) in each axis. Reads the canvas' natural
+  // pixel dims (set to source.width/height by the backend effect) and the live
+  // container size straight from the DOM, so it is never stale.
+  const computeFit = () => {
+    const box = containerRef.current
+    const canvas = canvasRef.current
+    if (!box || !canvas || !canvas.width || !canvas.height) return 1
+    const w = box.clientWidth
+    const h = box.clientHeight
+    if (!w || !h) return 1
+    return Math.min(w / canvas.width, h / canvas.height)
+  }
 
   // Lazily create the CPU worker client once. Declared before the source
   // effect below so cpuRef.current is already set when the backend is
@@ -121,6 +138,25 @@ export function Viewport(props: ViewportProps) {
     }
   }, [source, stack, palettes])
 
+  // Fit-and-center on image load AND on viewport resize. A ResizeObserver on the
+  // container fires once right after mount (initial fit) and again on every
+  // resize; each time we recompute the fit scale (which also becomes the new
+  // minScale floor) and re-center the image at that scale. This does not touch
+  // the rAF render effect (deps [source, stack, palettes]) — it only updates
+  // fitScale state + the library transform, so the WebGL canvas is not remounted.
+  useEffect(() => {
+    if (!source) return
+    const box = containerRef.current
+    if (!box) return
+    const ro = new ResizeObserver(() => {
+      const s = computeFit()
+      setFitScale(s)
+      zoomRef.current?.centerView(s, 0)
+    })
+    ro.observe(box)
+    return () => ro.disconnect()
+  }, [source])
+
   // Escape-to-cancel eyedropper when armed.
   useEffect(() => {
     if (!eyedropper) return
@@ -137,16 +173,10 @@ export function Viewport(props: ViewportProps) {
   // Publish an imperative zoom API for toolbar controls (in/out/fit/reset).
   useEffect(() => {
     if (!zoomApiRef) return
-    const fitScale = () => {
-      const canvas = canvasRef.current
-      const box = containerRef.current
-      if (!canvas || !box) return 1
-      return Math.min(box.clientWidth / canvas.width, box.clientHeight / canvas.height)
-    }
     zoomApiRef.current = {
       in: () => zoomRef.current?.zoomIn(),
       out: () => zoomRef.current?.zoomOut(),
-      fit: () => zoomRef.current?.centerView(fitScale()),
+      fit: () => zoomRef.current?.centerView(computeFit()),
       reset: () => zoomRef.current?.centerView(1),
     }
     return () => {
@@ -198,23 +228,27 @@ export function Viewport(props: ViewportProps) {
     >
       <TransformWrapper
         ref={zoomRef}
-        minScale={0.1}
-        maxScale={40}
-        limitToBounds={false}
-        centerOnInit
+        minScale={fitScale}
+        maxScale={Math.max(fitScale, 1) * 20}
+        limitToBounds
+        centerZoomedOut
         doubleClick={{ mode: 'reset' }}
         wheel={{ step: 0.15 }}
         panning={{ velocityDisabled: true }}
-        onTransform={(_, state) => onZoomChange?.(state.scale)}
+        onTransform={(_, state) => {
+          onZoomChange?.(state.scale)
+          // Imperative style poke (no React state) so zooming never re-runs the
+          // rAF render effect: crisp pixels when magnified past natural size,
+          // smooth resampling when fit/shrunk below it.
+          const canvas = canvasRef.current
+          if (canvas) canvas.style.imageRendering = state.scale > 1 ? 'pixelated' : 'auto'
+        }}
       >
-        <TransformComponent
-          wrapperClass="!h-full !w-full"
-          contentClass="!h-full !w-full items-center justify-center"
-        >
+        <TransformComponent wrapperClass="!h-full !w-full">
           <canvas
             ref={canvasRef}
             onClick={onCanvasClick}
-            className="max-h-full max-w-full object-contain shadow-sm"
+            className="shadow-sm"
             style={{ cursor: eyedropper ? 'crosshair' : undefined }}
           />
         </TransformComponent>
