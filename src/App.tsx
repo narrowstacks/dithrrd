@@ -45,8 +45,6 @@ export default function App() {
     window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''))
   }, [loadPreset])
 
-  if (!hasWebGL2()) return <WebGL2Fallback />
-
   const onUpload = async (file: File) => {
     try {
       setSource(await decodeToWorkingImage(file))
@@ -100,6 +98,8 @@ export default function App() {
     help: () => setHelpOpen(true),
   }
   useKeyboardShortcuts(actions)
+
+  if (!hasWebGL2()) return <WebGL2Fallback />
 
   return (
     <>
