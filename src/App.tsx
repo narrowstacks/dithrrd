@@ -7,7 +7,9 @@ import { Viewport, type ZoomApi } from '@/ui/Viewport'
 import { StackPanel } from '@/ui/StackPanel'
 import { ControlsPanel } from '@/ui/ControlsPanel'
 import { ShortcutsDialog } from '@/ui/ShortcutsDialog'
-import { useStore } from '@/store/store'
+import { useKeyboardShortcuts } from '@/ui/useKeyboardShortcuts'
+import { siblingNodeId, type ShortcutActions } from '@/ui/shortcuts'
+import { useStore, appStore } from '@/store/store'
 import { decodeToWorkingImage } from '@/features/image'
 import { exportCurrentPng } from '@/features/exportPng'
 import { decodePresetParam } from '@/features/presetUrl'
@@ -21,6 +23,8 @@ export default function App() {
   const palettes = useStore((s) => s.palettes)
   const loadPreset = useStore((s) => s.loadPreset)
   const setHelpOpen = useStore((s) => s.setHelpOpen)
+  const setAddMenuOpen = useStore((s) => s.setAddMenuOpen)
+  const togglePanel = useStore((s) => s.togglePanel)
   const apiRef = useRef<{ backend: Backend; runCpu: RunCpu } | null>(null)
   const zoomApiRef = useRef<ZoomApi | null>(null)
   const [zoomPct, setZoomPct] = useState(1)
@@ -31,6 +35,7 @@ export default function App() {
     if (!p) return
     try {
       loadPreset(decodePresetParam(p))
+      appStore.temporal.getState().clear()
     } catch {
       toast.error('That shared link could not be loaded.')
     }
@@ -45,6 +50,7 @@ export default function App() {
   const onUpload = async (file: File) => {
     try {
       setSource(await decodeToWorkingImage(file))
+      appStore.temporal.getState().clear()
     } catch {
       toast.error('Could not open that image. Try a different file.')
     }
@@ -59,6 +65,41 @@ export default function App() {
       toast.error('Export failed.')
     }
   }
+
+  const actions: ShortcutActions = {
+    undo: () => appStore.temporal.getState().undo(),
+    redo: () => appStore.temporal.getState().redo(),
+    delete: () => {
+      const { selectedId, removeNode } = appStore.getState()
+      if (selectedId) removeNode(selectedId)
+    },
+    duplicate: () => {
+      const { selectedId, duplicateNode } = appStore.getState()
+      if (selectedId) duplicateNode(selectedId)
+    },
+    toggle: () => {
+      const { selectedId, toggleNode } = appStore.getState()
+      if (selectedId) toggleNode(selectedId)
+    },
+    selectPrev: () => {
+      const st = appStore.getState()
+      st.selectNode(siblingNodeId(st.stack.map((n) => n.id), st.selectedId, -1))
+    },
+    selectNext: () => {
+      const st = appStore.getState()
+      st.selectNode(siblingNodeId(st.stack.map((n) => n.id), st.selectedId, 1))
+    },
+    addMenu: () => setAddMenuOpen(true),
+    export: () => void onExport(),
+    collapseLeft: () => togglePanel('left'),
+    collapseRight: () => togglePanel('right'),
+    zoomIn: () => zoomApiRef.current?.in(),
+    zoomOut: () => zoomApiRef.current?.out(),
+    zoomFit: () => zoomApiRef.current?.fit(),
+    zoomReset: () => zoomApiRef.current?.reset(),
+    help: () => setHelpOpen(true),
+  }
+  useKeyboardShortcuts(actions)
 
   return (
     <>
