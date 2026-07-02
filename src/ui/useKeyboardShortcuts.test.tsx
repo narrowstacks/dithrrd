@@ -43,4 +43,21 @@ describe('useKeyboardShortcuts', () => {
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', metaKey: true, ctrlKey: true, bubbles: true }))
     expect((actions.undo as ReturnType<typeof vi.fn>)).toHaveBeenCalled()
   })
+
+  it('ignores a single-key shortcut while a modal dialog is open, but mod shortcuts still fire', () => {
+    const actions = makeActions()
+    render(<Harness actions={actions} />)
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    document.body.appendChild(dialog)
+    try {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' }))
+      expect((actions.toggle as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', metaKey: true, ctrlKey: true }))
+      expect((actions.undo as ReturnType<typeof vi.fn>)).toHaveBeenCalled()
+    } finally {
+      dialog.remove()
+    }
+  })
 })

@@ -4,6 +4,7 @@ import {
   matchShortcut,
   isSingleKey,
   isEditableTarget,
+  isModalOpen,
   isMac,
   type ShortcutActions,
 } from '@/ui/shortcuts'
@@ -23,7 +24,7 @@ export function useKeyboardShortcuts(actions: ShortcutActions, enabled = true): 
         mac,
       )
       if (!sc) return
-      if (isSingleKey(sc) && isEditableTarget(e.target)) return
+      if (isSingleKey(sc) && (isEditableTarget(e.target) || isModalOpen())) return
       e.preventDefault()
       ref.current[sc.id]?.()
     }

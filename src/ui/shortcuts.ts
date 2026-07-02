@@ -110,3 +110,8 @@ export function siblingNodeId(
 export function isMac(): boolean {
   return typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 }
+
+export function isModalOpen(): boolean {
+  return typeof document !== 'undefined' &&
+    !!document.querySelector('[role="dialog"], [role="menu"]')
+}

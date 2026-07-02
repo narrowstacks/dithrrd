@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import {
   SHORTCUTS,
   matchShortcut,
   isSingleKey,
   siblingNodeId,
+  isModalOpen,
   type KeyDescriptor,
 } from '@/ui/shortcuts'
 
@@ -62,5 +63,22 @@ describe('siblingNodeId', () => {
   it('selects the first node when nothing is selected', () => {
     expect(siblingNodeId(ids, null, 1)).toBe('a')
     expect(siblingNodeId([], null, 1)).toBeNull()
+  })
+})
+
+describe('isModalOpen', () => {
+  afterEach(() => {
+    document.querySelectorAll('[role="dialog"], [role="menu"]').forEach((el) => el.remove())
+  })
+
+  it('returns false when no dialog or menu is in the DOM', () => {
+    expect(isModalOpen()).toBe(false)
+  })
+
+  it('returns true when a [role="dialog"] element is present', () => {
+    const el = document.createElement('div')
+    el.setAttribute('role', 'dialog')
+    document.body.appendChild(el)
+    expect(isModalOpen()).toBe(true)
   })
 })
