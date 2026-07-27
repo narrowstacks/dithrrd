@@ -9,21 +9,29 @@ export const MAX_DIFF_FRACTION = 0.001
 export function compareRgba(
   a: Uint8ClampedArray,
   b: Uint8ClampedArray,
-): { maxDelta: number; diffFraction: number } {
+): { maxDelta: number; diffFraction: number; badFraction: number } {
   if (a.length !== b.length) throw new Error(`length mismatch: ${a.length} vs ${b.length}`)
   let maxDelta = 0
   let differing = 0
+  let bad = 0
   const pixels = a.length / 4
   for (let p = 0; p < pixels; p++) {
     let pixelDiffers = false
+    let pixelBad = false
     for (let c = 0; c < 4; c++) {
       const d = Math.abs(a[p * 4 + c] - b[p * 4 + c])
       if (d > maxDelta) maxDelta = d
       if (d > 0) pixelDiffers = true
+      if (d > MAX_DELTA) pixelBad = true
     }
     if (pixelDiffers) differing++
+    if (pixelBad) bad++
   }
-  return { maxDelta, diffFraction: pixels === 0 ? 0 : differing / pixels }
+  return {
+    maxDelta,
+    diffFraction: pixels === 0 ? 0 : differing / pixels,
+    badFraction: pixels === 0 ? 0 : bad / pixels,
+  }
 }
 
 export async function assertGolden(
@@ -51,9 +59,10 @@ export async function assertGolden(
   expect(golden.width).toBe(width)
   expect(golden.height).toBe(height)
 
-  const { maxDelta, diffFraction } = compareRgba(golden.data, rgba)
+  const { maxDelta, diffFraction, badFraction } = compareRgba(golden.data, rgba)
   expect(
-    maxDelta <= MAX_DELTA || diffFraction <= MAX_DIFF_FRACTION,
-    `golden "${name}" drifted: maxDelta=${maxDelta} diffFraction=${diffFraction.toFixed(5)}`,
+    badFraction <= MAX_DIFF_FRACTION,
+    `golden "${name}" drifted: badFraction=${badFraction.toFixed(5)} ` +
+      `(limit ${MAX_DIFF_FRACTION}), maxDelta=${maxDelta}, diffFraction=${diffFraction.toFixed(5)}`,
   ).toBe(true)
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { encodePng, decodePng } from '@/testing/png'
-import { compareRgba } from '@/testing/goldens'
+import { compareRgba, MAX_DELTA } from '@/testing/goldens'
 import { makeTestImage } from '@/testing/testImage'
 
 describe('png codec', () => {
@@ -33,5 +33,29 @@ describe('compareRgba', () => {
     const b = new Uint8ClampedArray(4 * 4)
     b[4] = 9
     expect(compareRgba(a, b).diffFraction).toBeCloseTo(0.25, 5)
+  })
+
+  it('reports zero badFraction when every channel drifts within tolerance', () => {
+    const pixels = 16
+    const a = new Uint8ClampedArray(pixels * 4).fill(100)
+    const b = new Uint8ClampedArray(pixels * 4).fill(100 + MAX_DELTA)
+    const r = compareRgba(a, b)
+    expect(r.maxDelta).toBe(MAX_DELTA)
+    expect(r.badFraction).toBe(0)
+  })
+
+  it('reports a nonzero badFraction for one badly-corrupted pixel among many', () => {
+    const pixels = 100
+    const a = new Uint8ClampedArray(pixels * 4)
+    const b = new Uint8ClampedArray(pixels * 4)
+    b[0] = 255 // one channel of the first pixel is wildly off
+    const r = compareRgba(a, b)
+    expect(r.badFraction).toBeGreaterThan(0)
+    expect(r.badFraction).toBeCloseTo(1 / pixels, 10)
+  })
+
+  it('reports zero badFraction for identical buffers', () => {
+    const a = makeTestImage(16, 16).data
+    expect(compareRgba(a, a.slice()).badFraction).toBe(0)
   })
 })
