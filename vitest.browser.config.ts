@@ -30,7 +30,19 @@ function serveFixtures(): Plugin {
         if (!req.url || !req.url.startsWith('/fixtures/')) return next()
         const relative = req.url.slice('/fixtures/'.length).split('?')[0]
         const filePath = path.join(fixturesDir, relative)
-        if (!filePath.startsWith(fixturesDir) || !existsSync(filePath)) return next()
+        if (!filePath.startsWith(fixturesDir)) return next()
+        if (!existsSync(filePath)) {
+          // Respond with a real 404 instead of falling through to Vite's
+          // SPA-fallback middleware, which would otherwise serve index.html
+          // with a 200 status for this URL. assertGolden() relies on
+          // `res.ok` to detect a missing golden; an HTML 200 masquerading
+          // as the requested PNG makes it fall into decodePng() and fail
+          // with a confusing "source image could not be decoded" browser
+          // error instead of the intended "missing golden" message.
+          res.statusCode = 404
+          res.end()
+          return
+        }
         res.setHeader('Content-Type', 'image/png')
         res.end(await readFile(filePath))
       })
