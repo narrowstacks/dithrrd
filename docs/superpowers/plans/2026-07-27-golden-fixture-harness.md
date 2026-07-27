@@ -11,10 +11,11 @@
 ## Global Constraints
 
 - This plan modifies the **existing** `dithrrd` repo, not the native port repo.
+- **The repo is pnpm-managed** (tracked `pnpm-lock.yaml`, no `package-lock.json`). Install with `pnpm add -D`, and stage `pnpm-lock.yaml` in commits. The `npm run <script>` invocations below still work as written.
 - The existing jsdom suite must keep passing unchanged. Baseline at plan authoring: **40 files, 149 tests passing** via `npm test`.
 - Browser tests use the filename suffix `.browser.test.ts` and MUST be excluded from the jsdom config, whose `include` currently defaults to all `*.test.ts`.
 - Goldens live in `fixtures/` at repo root and are committed to git.
-- Golden comparison tolerance: max per-channel delta **2**, max differing-pixel fraction **0.001**. GPU output is not bit-stable across drivers; exact equality will produce flaky tests.
+- Golden comparison tolerance: a pixel is **bad** when any channel drifts more than **2**; a golden fails when the **bad-pixel fraction exceeds 0.001**. GPU output is not bit-stable across drivers, so exact equality would be flaky — but the gate must be the bad-pixel fraction alone. Never gate on "pixels that differ at all", and never OR two independent bounds together: both let localized corruption pass, which is precisely the failure mode a wrong Metal kernel produces.
 - Source image dimensions for all goldens: **256 × 256**. Small enough to commit, large enough to exercise 8×8 ordered-dither matrices and halftone cells.
 - Do not modify any file under `src/effects/`, `src/engine/`, or `src/worker/`. This plan only adds a test harness around them.
 
@@ -600,21 +601,29 @@ export const MAX_DIFF_FRACTION = 0.001
 export function compareRgba(
   a: Uint8ClampedArray,
   b: Uint8ClampedArray,
-): { maxDelta: number; diffFraction: number } {
+): { maxDelta: number; diffFraction: number; badFraction: number } {
   if (a.length !== b.length) throw new Error(`length mismatch: ${a.length} vs ${b.length}`)
   let maxDelta = 0
   let differing = 0
+  let bad = 0
   const pixels = a.length / 4
   for (let p = 0; p < pixels; p++) {
     let pixelDiffers = false
+    let pixelBad = false
     for (let c = 0; c < 4; c++) {
       const d = Math.abs(a[p * 4 + c] - b[p * 4 + c])
       if (d > maxDelta) maxDelta = d
       if (d > 0) pixelDiffers = true
+      if (d > MAX_DELTA) pixelBad = true
     }
     if (pixelDiffers) differing++
+    if (pixelBad) bad++
   }
-  return { maxDelta, diffFraction: pixels === 0 ? 0 : differing / pixels }
+  return {
+    maxDelta,
+    diffFraction: pixels === 0 ? 0 : differing / pixels,
+    badFraction: pixels === 0 ? 0 : bad / pixels,
+  }
 }
 
 export async function assertGolden(
@@ -642,21 +651,48 @@ export async function assertGolden(
   expect(golden.width).toBe(width)
   expect(golden.height).toBe(height)
 
-  const { maxDelta, diffFraction } = compareRgba(golden.data, rgba)
+  // A pixel is "bad" when any channel drifts beyond MAX_DELTA. The gate is the
+  // fraction of bad pixels — NOT the fraction that differ at all, and NOT an OR
+  // across two independent bounds. Uniform sub-tolerance drift passes; localized
+  // corruption fails, which is the failure mode a wrong Metal kernel produces.
+  const { maxDelta, diffFraction, badFraction } = compareRgba(golden.data, rgba)
   expect(
-    maxDelta <= MAX_DELTA || diffFraction <= MAX_DIFF_FRACTION,
-    `golden "${name}" drifted: maxDelta=${maxDelta} diffFraction=${diffFraction.toFixed(5)}`,
+    badFraction <= MAX_DIFF_FRACTION,
+    `golden "${name}" drifted: badFraction=${badFraction.toFixed(5)} ` +
+      `(limit ${MAX_DIFF_FRACTION}), maxDelta=${maxDelta}, diffFraction=${diffFraction.toFixed(5)}`,
   ).toBe(true)
 }
 ```
 
 - [ ] **Step 5: Serve the fixtures directory**
 
-In `vitest.browser.config.ts`, add `publicDir` so `/fixtures/*.png` resolves. Add this key at the top level of the config object, as a sibling of `resolve`:
+Browser test code fetches goldens from `/fixtures/<name>.png`, so the dev server must serve that path.
+
+**Do not use Vite's `publicDir` for this.** Pointing `publicDir` at the project root makes its static middleware — which runs *before* Vite's transform middleware — shadow every source-module request, serving raw untransformed TypeScript to the browser. The client never bootstraps and the whole browser suite hangs indefinitely. This was verified empirically, not theorized.
+
+Instead add a plugin scoped strictly to the `/fixtures/` prefix. In `vitest.browser.config.ts`:
 
 ```ts
-  publicDir: fileURLToPath(new URL('./', import.meta.url)),
+const fixturesDir = fileURLToPath(new URL('./fixtures/', import.meta.url))
+
+function serveFixtures(): Plugin {
+  return {
+    name: 'serve-golden-fixtures',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url || !req.url.startsWith('/fixtures/')) return next()
+        const relative = req.url.slice('/fixtures/'.length).split('?')[0]
+        const filePath = path.join(fixturesDir, relative)
+        if (!filePath.startsWith(fixturesDir) || !existsSync(filePath)) return next()
+        res.setHeader('Content-Type', 'image/png')
+        res.end(await readFile(filePath))
+      })
+    },
+  }
+}
 ```
+
+Register it as `plugins: [serveFixtures()]` at the top level of the config, and extend the imports to cover `type Plugin` from `vitest/config`, `readFile` from `node:fs/promises`, and `existsSync` from `node:fs`. The `filePath.startsWith(fixturesDir)` check is a path-traversal guard and is not optional.
 
 - [ ] **Step 6: Run it to verify it passes**
 
