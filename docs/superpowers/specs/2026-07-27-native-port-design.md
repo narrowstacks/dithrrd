@@ -194,13 +194,21 @@ The SDK's deterministic reference renderer shows a placeholder for media surface
 
 ### Pixels
 
-The existing 1,387 LOC of tests are the porting oracle. `src/effects/*.test.ts` and `src/worker/algorithms.test.ts` already encode what every effect must produce.
+The existing tests are only a partial oracle, and the split matters:
 
-1. Extend the current web tests to dump their outputs as PNG fixtures.
-2. Commit those fixtures to the new repo as goldens.
-3. Port each kernel until it reproduces its golden.
+- **The 6 CPU diffusion effects are covered.** `src/worker/algorithms.test.ts` runs real pixel math and is a genuine behavioural oracle today.
+- **The 10 GPU effects are not.** `src/effects/*.test.ts` asserts only params-to-uniform mapping (see `bayer.test.ts`); the GLSL is never executed. There are no pixel expectations to harvest.
 
-This makes the port test-first: each of the 16 effects has a pass/fail bar before any MSL is written.
+Goldens for the GPU effects therefore have to be **created**, not extracted, and that requires executing WebGL2 shaders — which jsdom cannot do. A browser-backed test runner (`@vitest/browser` + Playwright, real Chromium) is a prerequisite.
+
+Sequence:
+
+1. In the existing repo, add a browser-mode test runner and a headless render harness over the real regl backend.
+2. Generate PNG goldens for all 16 effects from a procedurally-generated source image, plus at least one multi-effect stack.
+3. Commit the goldens and assert against them, which also gives the current web app pixel-regression coverage it lacks.
+4. Port each Metal kernel until it reproduces its golden.
+
+Step 1–3 are work in the *current* repo and are worth doing on their own merits, independent of whether the port proceeds.
 
 **Tolerance.** GLSL and MSL do not guarantee bit-identical float results. Ordered dithers and diffusion kernels quantize to discrete levels and should match exactly. Continuous-math effects (`grade`, `duotone`, `halftone` rotation) may differ in the last ulp. Goldens therefore compare with a per-pixel tolerance plus a max-delta ceiling, not byte equality. The six diffusion kernels are CPU-side in both worlds and get exact assertions.
 
