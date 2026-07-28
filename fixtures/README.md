@@ -1,12 +1,36 @@
 # Golden fixtures
 
-This directory holds 18 committed PNG goldens: one per effect (`<effect>-default.png`)
-plus two multi-effect stacks (`stack-gpu-cpu-gpu.png`, `stack-grade-bayer.png`). They
-are the correctness oracle for this app's dithering/halftone/palette effects, rendered
+This directory holds 29 committed PNG goldens: one per effect at its defaults
+(`<effect>-default.png`), two multi-effect stacks (`stack-gpu-cpu-gpu.png`,
+`stack-grade-bayer.png`), and two more variant sets described below. They are the
+correctness oracle for this app's dithering/halftone/palette effects, rendered
 through the real WebGL2 pipeline. Their purpose is broader than regression-catching in
 this repo: they are also the intended reference output for a planned native Metal port
 of the same effects, so a from-scratch Metal implementation can be checked pixel-for-pixel
 against known-good web output instead of only "looks right."
+
+## `levels: 3` variants (`<effect>-levels3.png`)
+
+The `<effect>-default.png` goldens use each effect's `defaultParams`, and for 10 of
+the 16 effects that means `levels: 2` exclusively — even though the UI exposes levels
+2 through 8. A native kernel could hardcode or mis-wire the levels uniform and still
+pass every existing golden, because only one value of `levels` was ever verified.
+
+`atkinson-levels3.png`, `bayer-levels3.png`, `burkes-levels3.png`,
+`clusteredDot-levels3.png`, `floyd-levels3.png`, `jarvis-levels3.png`,
+`perChannel-levels3.png`, `pixelate-levels3.png`, `sierra-levels3.png`, and
+`stucki-levels3.png` add a second verified point at `levels: 3` for every effect whose
+`defaultParams` contains `levels` (`pixelate` already defaults to `levels: 4`, so it
+gets a `levels: 3` variant too, for the same reason: a second point, not just the one
+default). Every other param is taken from the effect's own `defaultParams` — only
+`levels` is overridden.
+
+## 8×8 Bayer matrix (`bayer-matrix8.png`)
+
+`bayer`'s `defaultParams` use `matrix: '4'`, so the `uMatrix > 7.0` branch and the
+entire `BAYER8` table in the bayer shader had never been exercised by any golden.
+`bayer-matrix8.png` uses `{ matrix: '8', levels: 2 }` (`levels` held at the default so
+the fixture isolates the matrix change) to close that gap.
 
 ## Regenerating
 

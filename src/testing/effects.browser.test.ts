@@ -81,3 +81,65 @@ describe('stack goldens', () => {
     })
   }
 })
+
+/**
+ * Every effect whose defaultParams includes `levels`. Today the only verified
+ * point per effect is `levels: 2` (defaults), yet the UI exposes levels 2-8.
+ * These add a second verified point at `levels: 3`, built from each effect's
+ * own defaultParams with only `levels` overridden — every other param stays
+ * canonical and is read from the registry, never hardcoded here.
+ */
+const LEVELS3_EFFECTS = [
+  'atkinson',
+  'bayer',
+  'burkes',
+  'clusteredDot',
+  'floyd',
+  'jarvis',
+  'perChannel',
+  'sierra',
+  'stucki',
+  'pixelate',
+]
+
+describe('levels-3 goldens', () => {
+  for (const type of LEVELS3_EFFECTS) {
+    it(`${type} levels:3 matches its golden`, async () => {
+      const effect = EFFECT_LIST.find((e) => e.type === type)
+      if (!effect) throw new Error(`unknown effect: ${type}`)
+      const params: Params = { ...effect.defaultParams, levels: 3 }
+
+      const src = makeTestImage(SIZE, SIZE)
+      const out = await renderStack(
+        src,
+        [{ id: 'a', type, enabled: true, params }],
+        PALETTES,
+      )
+
+      // Same no-op guard as the default-params goldens: an effect (or a
+      // levels override) that silently does nothing must not be captured as
+      // its own golden.
+      const vsSource = compareRgba(src.data, out)
+      expect(vsSource.diffFraction).toBeGreaterThan(0.05)
+
+      await assertGolden(`${type}-levels3`, out, SIZE, SIZE)
+    })
+  }
+
+  // bayer's defaultParams use the 4x4 matrix ('4'), so the `uMatrix > 7.0`
+  // branch and the entire BAYER8 table have never been exercised by any
+  // golden. levels:2 matches the default so this isolates the matrix change.
+  it('bayer matrix:8 matches its golden', async () => {
+    const src = makeTestImage(SIZE, SIZE)
+    const out = await renderStack(
+      src,
+      [{ id: 'a', type: 'bayer', enabled: true, params: { matrix: '8', levels: 2 } }],
+      PALETTES,
+    )
+
+    const vsSource = compareRgba(src.data, out)
+    expect(vsSource.diffFraction).toBeGreaterThan(0.05)
+
+    await assertGolden('bayer-matrix8', out, SIZE, SIZE)
+  })
+})
