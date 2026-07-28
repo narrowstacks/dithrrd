@@ -18,7 +18,13 @@ export async function encodePng(
 export async function decodePng(
   bytes: Uint8Array,
 ): Promise<{ data: Uint8ClampedArray; width: number; height: number }> {
-  const blob = new Blob([bytes], { type: 'image/png' })
+  // `.slice()` always allocates a fresh, plain `ArrayBuffer`-backed copy, so
+  // TypeScript types its result as `Uint8Array<ArrayBuffer>` regardless of
+  // the source's buffer type — satisfying `BlobPart`, which (unlike the
+  // input `Uint8Array<ArrayBufferLike>`) excludes `SharedArrayBuffer`-backed
+  // views. Bytes are never shared/transferred concurrently here, so the
+  // extra copy has no behavioral effect.
+  const blob = new Blob([bytes.slice()], { type: 'image/png' })
   const bitmap = await createImageBitmap(blob)
   const canvas = document.createElement('canvas')
   canvas.width = bitmap.width

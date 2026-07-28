@@ -2,6 +2,19 @@ import { expect } from 'vitest'
 import { commands } from '@vitest/browser/context'
 import { encodePng, decodePng } from '@/testing/png'
 
+/**
+ * Module augmentation for the `writeGolden` custom browser command defined
+ * in `vitest.browser.config.ts` (`test.browser.commands.writeGolden`).
+ * `BrowserCommands` ships empty by default; commands are wired in by the
+ * consumer augmenting this interface, matching the real implementation's
+ * signature (which resolves to `true` on success).
+ */
+declare module '@vitest/browser/context' {
+  interface BrowserCommands {
+    writeGolden: (name: string, base64: string) => Promise<boolean>
+  }
+}
+
 /** Tolerances: GPU output is not bit-stable across drivers. */
 export const MAX_DELTA = 2
 export const MAX_DIFF_FRACTION = 0.001
