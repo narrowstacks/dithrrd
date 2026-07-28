@@ -52,3 +52,55 @@ Two coordinate conventions separate the pipelines, and both are now derived and 
 ## Loose end
 
 A scratch GitHub repo `narrowstacks/dithrrd-native-ci-scratch` (private) was created during the final fix wave to prove the CI workflow goes green on a hosted macOS runner. The verification succeeded. The repo is disposable and should be deleted.
+
+---
+
+# Phase 2 complete — all 16 effects ported
+
+Executed 2026-07-28. `dithrrd-native` head `009025c`, **60/60 tests, 27 golden comparisons, 23 byte-perfect.**
+
+## Goldens extended first
+
+The blocking follow-up was closed before any porting: the web harness gained a `levels: 3` variant for all 10 effects carrying a `levels` param, plus `bayer-matrix8` for the previously-unexercised 8×8 matrix. **29 fixtures, all byte-distinct**, browser suite 35 → 46 tests. On branch `test/golden-fixture-harness` (PR #1).
+
+That decision paid for itself immediately — see the precision bug below.
+
+## Results
+
+| Group | Effects | Outcome |
+|---|---|---|
+| CPU diffusion | atkinson, floyd, jarvis, stucki, sierra, burkes | byte-perfect |
+| GPU ordered / pointwise | bayer (4×4 and 8×8), grade, palette, duotone, pixelate, clusteredDot | byte-perfect |
+| GPU rotated-coordinate | lineScreen | byte-perfect (maxDelta 2) |
+| GPU rotated-coordinate | halftone, crosshatch, perChannel | relaxed, precision-limited |
+
+## Three bugs the goldens caught that review did not
+
+1. **f32 vs f64 diffusion precision.** `algorithms.ts` runs diffusion at JS double precision, truncating to f32 only at `Float32Array` storage points. The Zig port used f32 throughout — matching every kernel/image combination *except* `sierra-levels3` near a quantization boundary. Without the levels=3 goldens this would have shipped silently across all six diffusion kernels.
+2. **`pixelate`'s offset sampling needs a second flip.** The cell maths lives in GL-bottom-up space, but pixelate samples `src` at an *offset* position rather than its own fragment position; that offset had to be re-flipped before hitting a top-down texture. Initially `badFraction=0.91`.
+3. **The Bayer matrix row-mirror** (phase 1) — `(height-1-r)%4`, not `r%4`.
+
+Together with phase 1, that is four coordinate/precision conventions separating the two pipelines, all now derived and tested rather than guessed.
+
+## Why four effects are not byte-perfect — and why that is fine
+
+An independent reviewer reimplemented all four in **pure Python float64, no GPU**, and reproduced the Metal port's mismatch counts to within ~13 pixels out of 65,536. The residual is inherent to the goldens, not the kernels.
+
+The mechanism is **not** sub-ULP sin/cos differences, as first assumed. All 449 crosshatch bad pixels sit within 0.0024 of a `fract(u/6)` boundary — ~500× larger than f32 trig ULP. The real cause: the web pipeline is a **fragment shader**, so `vUv` is interpolated by the rasterizer in ~1/256px fixed-point quanta. A compute kernel indexing integer `gid` cannot reproduce that by construction.
+
+A half-texel-offset bug was actively falsified: injecting ±0.5 texel of bias *triples* the mismatch, so zero bias is the minimum.
+
+Final tolerances, per-effect and explicit (22 sites still use the strict default):
+
+| effect | bad-fraction limit | max-delta ceiling | measured |
+|---|---|---|---|
+| perChannel-default | 0.035 | 255 | 0.0301 / 255 |
+| perChannel-levels3 | 0.035 | 128 | 0.0293 / 128 |
+| halftone-default | 0.05 | 96 | 0.0422 / 60 |
+| crosshatch-default | 0.01 | 255 | 0.0069 / 255 |
+
+`perChannel-levels3`'s ceiling was tightened from 255 to 128 (a one-level flip at 3 levels caps at 128, so 255 was 2× looser than its own justification). `halftone`'s was made explicit at 96 rather than incidentally clearing the default 64 by 4 — an equally valid f64 reference measures 71.
+
+## What remains
+
+The effect catalogue is complete and verified. Still unbuilt, all previously scoped out of the slice: the reorderable effect stack UI, palette editor with custom palettes, disk persistence, native open/save dialogs, drag-and-drop, menus, and full-resolution export. None of them test an unknown.
