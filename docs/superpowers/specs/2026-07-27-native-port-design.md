@@ -46,9 +46,13 @@ Two ways to get pixels on screen:
 
 The 2 MP cap forces a preview/export split, which is the architecture image editors already use and is where the latency win comes from.
 
-### `Cmd.request` gives render debouncing for free
+### Keyed effects give debouncing for free — but we no longer need them for rendering
 
-App-defined host commands are reachable from a TS core via `Cmd.request(name, payload, { key, ok, err })`. Keyed effects carry one-in-flight discipline: a request whose key is already in flight replaces the previous one and the superseded result is dropped silently. That is exactly slider-drag coalescing, handled at the effect layer.
+`Cmd.request(name, payload, { key, ok, err })` reaches app-defined host commands from a TS core, and keyed effects carry one-in-flight discipline: a request whose key is already in flight replaces the previous one, with the superseded result dropped silently. That is slider-drag coalescing at the effect layer, and it was a significant argument for the TS core.
+
+With a Zig core it no longer applies to rendering: `update` calls the pipeline directly, so there is no keyed effect in the render path and coalescing becomes the app's own concern. If rendering moves to a worker thread, `pushFrame`'s **latest-wins** contract provides the same guarantee at the frame level — a producer running faster than the display cannot build a backlog. The property survives; the mechanism changes.
+
+The keyed-effect discipline remains available for genuine effects the Zig core issues through `fx` (file reads, timers).
 
 ### Free wins
 
@@ -57,13 +61,12 @@ App-defined host commands are reachable from a TS core via `Cmd.request(name, pa
 
 ## Architecture
 
+**Core tier: Zig.** A TypeScript core was the original choice and is not buildable. `build/app.zig:499` panics when a tree carries both `src/core.ts` and `src/main.zig`: *"An app has exactly one core - the tree is the truth."* With a TS core the SDK generates its own entry point from `ts_core_main.zig` and there is no app-owned `main.zig`; other Zig files under `src/` are permitted but nothing links them, and setting a custom `main` path forces the build to skip the TypeScript transpile stage entirely. Since the Metal pipeline must run inside the update/frame loop and hold the runtime for `acquireMediaSurfaceProducer`, the core is Zig.
+
 ```
-  src/core.ts          TS core (app-core subset) — Model, Msg, update.
+  src/main.zig         Zig core — Model, Msg, update(model, msg, fx).
        │                 Owns stack, params, palettes, surface id.
-       │  Cmd.request("dither.render", …, { key: RENDER })
-       ▼
-  src/host.zig         Zig host commands — decode params, drive pipeline,
-       │                 wrap platform dialogs.
+       │                 Calls the pipeline directly.
        ▼
   src/pipeline/*.zig   Metal — MTLDevice, MSL kernels, ping-pong MTLTextures
        │
@@ -73,9 +76,11 @@ App-defined host commands are reachable from a TS core via `Cmd.request(name, pa
 
 Boundaries:
 
-- **TS ↔ Zig** via one keyed `Cmd.request` per render. `ok` returns dimensions and timing; `err` returns a machine-readable reason.
+- **`update` ↔ pipeline** is a direct Zig call. `update` receives `*Effects` as its third parameter, so effects and rendering are reachable from the same place.
 - **Zig ↔ Metal** is internal to `pipeline/`. Nothing above it knows Metal exists.
-- **Pixels never enter TS.** The core holds a `u64` surface id and never touches image bytes, which is what keeps it inside the app-core subset.
+- **Pixels never enter the model.** The model holds a `u64` surface id; frames go to the producer.
+
+**The `wire` component is gone.** It existed only to marshal a render request across the TS→Zig boundary as `Cmd.request` bytes. With one language there is no boundary, no payload encoding, no result decoding, and no versioned wire format to keep in sync — a whole module and its round-trip tests disappear. This is the main consolation for losing the TS core.
 
 ### Mapping from today's engine
 
@@ -120,10 +125,8 @@ In the new design:
 ```
 app.zon                    manifest: window, capabilities, assets
 src/
-  core.ts                  Model, Msg, update
+  main.zig                 Model, Msg, update, wiring, producer lifecycle
   app.native               markup view
-  wire.ts / wire.zig       render-request codec
-  host.zig                 Cmd.request handlers, dialog wrappers
   codec.zig                image decode → RGBA8 (ImageIO)
   catalog.zig              effect catalog, comptime, source of truth
   pipeline/
@@ -135,12 +138,6 @@ src/
     export.zig             full-res run → png.writeRgba8
 ```
 
-### wire
-
-New. `Cmd.request` marshals a `Uint8Array`, so the render request (effect stack, per-effect params, active palette) needs an explicit versioned encoding, written twice and tested as a pair. It is the contract the whole app rides on, so it gets its own module and round-trip tests rather than being spread across `core.ts` and `host.zig`.
-
-Payload carries: format version byte, working dimensions, preview flag, ordered effect list with per-effect params, and the active palette's colors.
-
 ### codec
 
 macOS ImageIO via Objective-C interop. Matches today's `accept="image/*"` behavior and handles JPEG, PNG, WebP, HEIC, TIFF. `png.decodeRgba8` alone would cover only PNG, and `Cmd.imageLoad` cannot be used because it deposits pixels in the SDK image registry behind the 1 MiB cap.
@@ -149,21 +146,23 @@ The ObjC interop cost is marginal because the Metal pipeline already requires it
 
 ### catalog
 
-The effect catalog (type, name, family, defaultParams, controls) must exist in both tiers. The Zig comptime table is the source of truth; the TS mirror is generated from it at build time via a step in `build.zig`. Adding an effect means editing one file. Drift is impossible, which matters because the wire format makes silent drift a runtime bug.
+The effect catalog (type, name, family, defaultParams, controls) lives in one place: a Zig comptime table. With a single tier there is no mirror to generate and no codegen step — the two-tier sync problem that made this a design question has disappeared along with the TS core. Adding an effect means editing one file because there is only one file.
 
 ### Ports that carry over nearly unchanged
 
 - `plan.zig` from `src/engine/planPasses.ts`.
 - `diffuse.zig` from `src/worker/algorithms.ts`: one driver plus six kernel tables.
 
-### What core.ts gives up
+### What porting `store.ts` to a Zig core involves
 
-The app-core subset changes `store.ts`'s shape more than it appears:
+The TEA shape survives; the language does not:
 
-- Strings become `Uint8Array` (palette names, effect ids).
-- All model fields become `readonly`; every mutation is a spread.
-- zustand actions become `Msg` arms.
+- zustand actions become `Msg` union arms, and the store body becomes `update(model: *Model, msg: Msg, fx: *Effects)`.
+- `update` mutates `*Model` in place rather than returning a new object — Zig cores mutate through the pointer, so the readonly-and-spread discipline the TS subset would have imposed does not apply.
 - `sortable.ts`'s drag-reorder becomes index math in `update` rather than dnd-kit callbacks.
+- Strings become Zig slices, which is ordinary rather than the `Uint8Array`-for-text constraint the TS subset carries.
+
+Net: less awkward than the TS subset would have been, in a less familiar language.
 
 ## Error handling
 
@@ -182,7 +181,7 @@ Two decisions:
 
 **MSL compiles to a `.metallib` at build time.** A kernel that does not compile breaks `zig build` rather than failing on first slider drag. This is strictly better than today, where a malformed GLSL string fails at draw time.
 
-**Cancellation needs no code.** Because renders are keyed, a superseded request is dropped by the runtime with no message. The newest render wins by construction, so there is no stale-frame race to reason about.
+**Stale frames cannot reach the screen.** With a Zig core there is no keyed render effect, so coalescing is not free at the effect layer. It is still free at the frame layer: `pushFrame` is latest-wins, so an unpresented staged frame is replaced by the next one and a producer running ahead of the display cannot build a backlog. The newest frame wins by construction.
 
 ## Testing
 
@@ -190,7 +189,9 @@ The SDK's deterministic reference renderer shows a placeholder for media surface
 
 ### App logic
 
-`native dev --core` runs the TS core under node, dispatching `Msg`s as JSON lines. Today's `store.test.ts` and `sortable.test.ts` port directly, since both already test pure state transitions.
+`update` is a plain function of model and message, so it is tested directly with `native test -Dplatform=null` — no window, no GPU. Today's `store.test.ts` and `sortable.test.ts` port across as ordinary Zig tests, since both already test pure state transitions.
+
+(`native dev --core`, which runs a core under node dispatching `Msg`s as JSON lines, is a TypeScript-core facility and is not available here.)
 
 ### Pixels
 
@@ -208,13 +209,11 @@ Sequence:
 3. Commit the goldens and assert against them, which also gives the current web app pixel-regression coverage it lacks.
 4. Port each Metal kernel until it reproduces its golden.
 
-Step 1–3 are work in the *current* repo and are worth doing on their own merits, independent of whether the port proceeds.
+Steps 1–3 are complete: see `docs/superpowers/plans/2026-07-27-golden-fixture-harness.md`. 18 goldens are committed in `fixtures/`.
+
+**One property of those goldens is load-bearing for the port.** The 6 diffusion goldens encode error diffusion running in **GL bottom-up row order with inverted serpentine parity**, because rows stay in GL order through the CPU readback hop and are flipped to top-down only at the very end. This matches production web behaviour. A Metal implementation writing a top-down diffusion loop will mismatch every diffusion golden. Recorded in `fixtures/README.md`.
 
 **Tolerance.** GLSL and MSL do not guarantee bit-identical float results. Ordered dithers and diffusion kernels quantize to discrete levels and should match exactly. Continuous-math effects (`grade`, `duotone`, `halftone` rotation) may differ in the last ulp. Goldens therefore compare with a per-pixel tolerance plus a max-delta ceiling, not byte equality. The six diffusion kernels are CPU-side in both worlds and get exact assertions.
-
-### wire
-
-Round-trip property tests in both directions, run in both tiers.
 
 ### UI flows
 
