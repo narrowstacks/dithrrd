@@ -20,7 +20,25 @@ const runCpuInline: RunCpu = async (
   return copy
 }
 
-/** Flip RGBA rows in place-ish: regl.read returns bottom-up, ImageData is top-down. */
+/**
+ * Flip RGBA rows in place-ish: regl.read returns bottom-up, ImageData is top-down.
+ *
+ * This is the ONLY row-order conversion in the pipeline, and it happens after every
+ * effect has already run. Rows are in GL bottom-up order throughout: `backend.ts`
+ * uploads the source with `flipY: true`, `backend.readback` uses `regl.read` (which
+ * returns bottom-up rows), and `backend.uploadPixels` re-uploads CPU output with
+ * `flipY: false` — so a CPU effect sandwiched between GPU passes reads and writes
+ * bottom-up rows too, just like `src/engine/execute.ts` does in production.
+ *
+ * Consequence for the error-diffusion effects (floyd, atkinson, burkes, jarvis,
+ * sierra, stucki) and any golden that exercises the CPU readback path (e.g.
+ * stack-gpu-cpu-gpu): the diffusion loop scans image rows bottom-to-top, and
+ * serpentine row parity is inverted relative to image row index accordingly. This
+ * is not a bug — it faithfully matches what the production app does — but it means
+ * those goldens encode a bottom-up scan order. A top-down reimplementation (e.g. a
+ * native Metal port) will not bit-match them unless it either scans bottom-up or
+ * flips its input/output to compensate. See fixtures/README.md.
+ */
 function flipRows(data: Uint8ClampedArray, width: number, height: number): Uint8ClampedArray {
   const stride = width * 4
   const out = new Uint8ClampedArray(data.length)
