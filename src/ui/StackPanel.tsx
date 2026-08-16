@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useStore } from '@/store/store'
 import { EFFECT_LIST } from '@/effects/registry'
+import { effectIcon } from '@/ui/effectIcons'
 import type { Family } from '@/effects/types'
 import type { StackNode } from '@/engine/planPasses'
 import { dragEndIndices } from '@/ui/sortable'
@@ -53,6 +54,7 @@ interface StackRowProps {
 }
 
 function StackRow({ node, name, selected, onSelect, onToggle, onDuplicate, onRemove }: StackRowProps) {
+  const Icon = effectIcon(node.type)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: node.id,
   })
@@ -86,6 +88,7 @@ function StackRow({ node, name, selected, onSelect, onToggle, onDuplicate, onRem
         onClick={(e) => e.stopPropagation()}
         aria-label="Toggle effect"
       />
+      <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="flex-1 truncate">{name}</span>
       <button
         aria-label="Duplicate"
@@ -155,7 +158,9 @@ export function StackPanel() {
               </Button>
             }
           />
-          <DropdownMenuContent align="end">
+          {/* The default content width tracks the trigger (a small "Add" button), which
+              wraps the longer effect names onto two or three lines. Size to content instead. */}
+          <DropdownMenuContent align="end" className="w-auto min-w-56">
             {FAMILY_ORDER.map((family) => {
               const items = EFFECT_LIST.filter((e) => e.family === family)
               if (items.length === 0) return null
@@ -164,11 +169,15 @@ export function StackPanel() {
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
                     {FAMILY_LABEL[family]}
                   </DropdownMenuLabel>
-                  {items.map((e) => (
-                    <DropdownMenuItem key={e.type} onClick={() => addNode(e.type)}>
-                      {e.name}
-                    </DropdownMenuItem>
-                  ))}
+                  {items.map((e) => {
+                    const Icon = effectIcon(e.type)
+                    return (
+                      <DropdownMenuItem key={e.type} onClick={() => addNode(e.type)}>
+                        <Icon aria-hidden className="mr-2 size-3.5 text-muted-foreground" />
+                        {e.name}
+                      </DropdownMenuItem>
+                    )
+                  })}
                   <DropdownMenuSeparator />
                 </DropdownMenuGroup>
               )

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { EFFECT_LIST, registry } from '@/effects/registry'
+import { EFFECT_ICONS } from '@/ui/effectIcons'
 import { KERNELS } from '@/worker/algorithms'
 
 describe('registry integrity', () => {
@@ -19,6 +20,17 @@ describe('registry integrity', () => {
 
   it('registry maps type -> effect', () => {
     for (const e of EFFECT_LIST) expect(registry[e.type]).toBe(e)
+  })
+
+  // Every effect needs its own icon, and a rename must not leave a stale entry behind:
+  // effectIcon() silently falls back to a placeholder, so only a test catches drift.
+  it('icon map keys exactly match the registered effect types', () => {
+    expect(Object.keys(EFFECT_ICONS).sort()).toEqual(EFFECT_LIST.map((e) => e.type).sort())
+  })
+
+  it('assigns a distinct icon to every effect', () => {
+    const icons = Object.values(EFFECT_ICONS)
+    expect(new Set(icons).size).toBe(icons.length)
   })
 
   // Locks the worker-dispatch <-> effect-registration coupling: every kernel-driven

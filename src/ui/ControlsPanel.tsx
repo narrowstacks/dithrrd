@@ -2,6 +2,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useStore } from '@/store/store'
 import { registry } from '@/effects/registry'
 import { Control } from '@/ui/Control'
+import { effectIcon } from '@/ui/effectIcons'
 
 export function ControlsPanel() {
   const selectedId = useStore((s) => s.selectedId)
@@ -19,9 +20,12 @@ export function ControlsPanel() {
     )
   }
 
+  const Icon = effectIcon(effect.type)
+
   return (
     <div className="flex h-full flex-col">
-      <div className="p-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center gap-1.5 p-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <Icon aria-hidden className="size-3.5 shrink-0" />
         {effect.name}
       </div>
       <ScrollArea className="flex-1">
