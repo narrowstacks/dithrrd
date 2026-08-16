@@ -5,7 +5,14 @@ import type { TemporalState } from 'zundo'
 import type { StackNode } from '@/engine/planPasses'
 import type { Palette, ParamValue } from '@/effects/types'
 import type { Preset } from '@/features/preset'
-import { loadPanelPrefs, savePanelPrefs, type PanelPrefs } from '@/features/uiPrefs'
+import {
+  loadPanelPrefs,
+  savePanelPrefs,
+  type PanelPrefs,
+  loadViewportBgPrefs,
+  saveViewportBgPrefs,
+  type ViewportBgPrefs,
+} from '@/features/uiPrefs'
 import { registry } from '@/effects/registry'
 import { PALETTES } from '@/color/palettes'
 import { loadCustomPalettes, saveCustomPalettes } from '@/features/paletteStorage'
@@ -23,6 +30,7 @@ export interface AppState {
   palettes: Record<string, Palette>
   eyedropper: { paletteId: string; index: number } | null
   panels: PanelPrefs
+  viewportBg: ViewportBgPrefs
   addMenuOpen: boolean
   helpOpen: boolean
   setSource: (source: SourceImage) => void
@@ -35,6 +43,7 @@ export interface AppState {
   selectNode: (id: string | null) => void
   togglePanel: (side: 'left' | 'right') => void
   setPanelCollapsed: (side: 'left' | 'right', collapsed: boolean) => void
+  setViewportBg: (prefs: ViewportBgPrefs) => void
   setAddMenuOpen: (v: boolean) => void
   setHelpOpen: (v: boolean) => void
   addPalette: () => string
@@ -74,6 +83,7 @@ export function createAppStore() {
     palettes: loadInitialPalettes(),
     eyedropper: null,
     panels: loadPanelPrefs(),
+    viewportBg: loadViewportBgPrefs(),
     addMenuOpen: false,
     helpOpen: false,
 
@@ -138,6 +148,7 @@ export function createAppStore() {
       set((s) => ({ panels: { ...s.panels, [side]: !s.panels[side] } })),
     setPanelCollapsed: (side, collapsed) =>
       set((s) => ({ panels: { ...s.panels, [side]: collapsed } })),
+    setViewportBg: (prefs) => set({ viewportBg: prefs }),
     setAddMenuOpen: (v) => set({ addMenuOpen: v }),
     setHelpOpen: (v) => set({ helpOpen: v }),
 
@@ -250,6 +261,13 @@ appStore.subscribe((s) => {
   if (s.panels === lastPanels) return
   lastPanels = s.panels
   savePanelPrefs(s.panels)
+})
+
+let lastViewportBg = appStore.getState().viewportBg
+appStore.subscribe((s) => {
+  if (s.viewportBg === lastViewportBg) return
+  lastViewportBg = s.viewportBg
+  saveViewportBgPrefs(s.viewportBg)
 })
 
 export const useStore = <T>(selector: (s: AppState) => T): T => useZustand(appStore, selector)

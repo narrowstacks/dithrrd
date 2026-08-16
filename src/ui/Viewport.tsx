@@ -12,6 +12,7 @@ import { registry } from '@/effects/registry'
 import { createRunCpu, type RunCpu } from '@/worker/runCpu'
 import { ProcessingOverlay } from '@/ui/ProcessingOverlay'
 import { clientToSourcePixel } from '@/features/viewportMath'
+import { viewportBgStyle } from '@/features/viewportBgStyle'
 
 export interface ZoomApi {
   in: () => void
@@ -33,6 +34,7 @@ export function Viewport(props: ViewportProps) {
   const palettes = useStore((s) => s.palettes)
   const eyedropper = useStore((s) => s.eyedropper)
   const applyEyedropper = useStore((s) => s.applyEyedropper)
+  const viewportBg = useStore((s) => s.viewportBg)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const backendRef = useRef<(Backend & { dispose(): void }) | null>(null)
   const cpuRef = useRef<ReturnType<typeof createRunCpu> | null>(null)
@@ -245,10 +247,7 @@ export function Viewport(props: ViewportProps) {
     <div
       ref={containerRef}
       className="relative h-full w-full overflow-hidden"
-      style={{
-        backgroundImage: 'repeating-conic-gradient(#00000010 0% 25%, transparent 0% 50%)',
-        backgroundSize: '20px 20px',
-      }}
+      style={viewportBgStyle(viewportBg)}
     >
       <TransformWrapper
         ref={zoomRef}
