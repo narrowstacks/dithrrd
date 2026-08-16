@@ -1,8 +1,11 @@
 <p align="center">
-  <img src="assets/logo.png" alt="dithrrd" width="420">
+  <a href="https://dithrrd.narrowstacks.dev/">
+    <img src="assets/logo.png" alt="dithrrd" width="420">
+  </a>
 </p>
 
 <p align="center">A browser-based photo dithering and halftone customizer.</p>
+<p align="center"><a href="https://dithrrd.narrowstacks.dev/">dithrrd.narrowstacks.dev</a></p>
 
 dithrrd loads an image in your browser, runs it through a stack of dithering, halftone,
 and color effects, and lets you tune every parameter live before exporting a PNG. Nothing
