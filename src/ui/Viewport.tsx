@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react'
+import {
+  TransformWrapper,
+  TransformComponent,
+  type ReactZoomPanPinchContentRef,
+} from 'react-zoom-pan-pinch'
 import { useStore, appStore } from '@/store/store'
 import { planPasses } from '@/engine/planPasses'
 import { execute } from '@/engine/execute'
@@ -6,12 +11,23 @@ import { createReglBackend, type Backend } from '@/engine/backend'
 import { registry } from '@/effects/registry'
 import { createRunCpu, type RunCpu } from '@/worker/runCpu'
 import { ProcessingOverlay } from '@/ui/ProcessingOverlay'
+import { clientToSourcePixel } from '@/features/viewportMath'
+
+export interface ZoomApi {
+  in: () => void
+  out: () => void
+  fit: () => void
+  reset: () => void
+}
 
 interface ViewportProps {
   onReady?: (api: { backend: Backend; runCpu: RunCpu } | null) => void
+  zoomApiRef?: MutableRefObject<ZoomApi | null>
+  onZoomChange?: (scale: number) => void
 }
 
-export function Viewport({ onReady }: ViewportProps) {
+export function Viewport(props: ViewportProps) {
+  const { onReady, zoomApiRef, onZoomChange } = props
   const source = useStore((s) => s.source)
   const stack = useStore((s) => s.stack)
   const palettes = useStore((s) => s.palettes)
@@ -21,12 +37,31 @@ export function Viewport({ onReady }: ViewportProps) {
   const backendRef = useRef<(Backend & { dispose(): void }) | null>(null)
   const cpuRef = useRef<ReturnType<typeof createRunCpu> | null>(null)
   const rafRef = useRef<number>(0)
+  const zoomRef = useRef<ReactZoomPanPinchContentRef | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   // Monotonic render id. Guards against presenting a superseded/older render
   // (out-of-order) or one whose backend was disposed on a source change.
   const genRef = useRef(0)
   // Latest indicator timer, tracked only so effect cleanup can cancel it.
   const indicatorTimerRef = useRef<number>(0)
   const [rendering, setRendering] = useState(false)
+  // Scale at which the whole image fits the viewport. Doubles as the zoom-out
+  // floor (minScale) so the image can never be shrunk into the void. Recomputed
+  // on source change and container resize (see the ResizeObserver effect below).
+  const [fitScale, setFitScale] = useState(1)
+
+  // fitScale = min(container/source) in each axis. Reads the canvas' natural
+  // pixel dims (set to source.width/height by the backend effect) and the live
+  // container size straight from the DOM, so it is never stale.
+  const computeFit = () => {
+    const box = containerRef.current
+    const canvas = canvasRef.current
+    if (!box || !canvas || !canvas.width || !canvas.height) return 1
+    const w = box.clientWidth
+    const h = box.clientHeight
+    if (!w || !h) return 1
+    return Math.min(w / canvas.width, h / canvas.height)
+  }
 
   // Lazily create the CPU worker client once. Declared before the source
   // effect below so cpuRef.current is already set when the backend is
@@ -103,6 +138,45 @@ export function Viewport({ onReady }: ViewportProps) {
     }
   }, [source, stack, palettes])
 
+  // Fit-and-center on image load AND on viewport resize. A ResizeObserver on the
+  // container fires once right after mount (initial fit) and again on every
+  // resize; each time we recompute the fit scale (which also becomes the new
+  // minScale floor) and re-center the image at that scale. This does not touch
+  // the rAF render effect (deps [source, stack, palettes]) — it only updates
+  // fitScale state + the library transform, so the WebGL canvas is not remounted.
+  useEffect(() => {
+    if (!source) return
+    const box = containerRef.current
+    if (!box) return
+    const ro = new ResizeObserver(() => {
+      const s = computeFit()
+      setFitScale(s)
+      zoomRef.current?.centerView(s, 0)
+    })
+    ro.observe(box)
+    return () => ro.disconnect()
+  }, [source])
+
+  // Center/fit synchronously BEFORE paint on a source change, to avoid a
+  // one-frame flash of the canvas at scale 1 pinned to the wrapper's top-left
+  // (the ResizeObserver below only centers on its async callback). The backend
+  // effect that sizes the canvas is a passive effect and thus runs AFTER this
+  // layout effect, so we size the canvas here from the known source dims first
+  // (same value the backend effect will set) so computeFit() isn't reading a
+  // zero/stale canvas. This only pokes the library transform (imperative) — the
+  // one setFitScale keeps minScale in sync and is keyed on [source], so it
+  // settles in a single pass and cannot form a transform→state→resize loop.
+  useLayoutEffect(() => {
+    if (!source) return
+    if (!zoomRef.current || !containerRef.current || !canvasRef.current) return
+    const canvas = canvasRef.current
+    if (canvas.width !== source.width) canvas.width = source.width
+    if (canvas.height !== source.height) canvas.height = source.height
+    const s = computeFit()
+    setFitScale(s)
+    zoomRef.current.centerView(s, 0)
+  }, [source])
+
   // Escape-to-cancel eyedropper when armed.
   useEffect(() => {
     if (!eyedropper) return
@@ -116,24 +190,45 @@ export function Viewport({ onReady }: ViewportProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [eyedropper])
 
+  // Publish an imperative zoom API for toolbar controls (in/out/fit/reset).
+  useEffect(() => {
+    if (!zoomApiRef) return
+    zoomApiRef.current = {
+      in: () => zoomRef.current?.zoomIn(),
+      out: () => zoomRef.current?.zoomOut(),
+      fit: () => zoomRef.current?.centerView(computeFit()),
+      // Fit-aware 100%: for large images fitScale<1 so this is a true 100%; for
+      // images smaller than the viewport it clamps up to the fit floor so reset
+      // can never shrink the image below "whole image fits" (the library's
+      // built-in reset ignores minScale/checkZoomBounds).
+      reset: () => zoomRef.current?.centerView(Math.max(1, computeFit())),
+    }
+    return () => {
+      zoomApiRef.current = null
+    }
+  }, [zoomApiRef])
+
   const onCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!eyedropper || !source) return
-    const canvas = e.currentTarget
-    const rect = canvas.getBoundingClientRect()
-    // object-contain letterboxes: compute the drawn image rect inside the element.
-    const scale = Math.min(rect.width / source.width, rect.height / source.height)
-    const drawnW = source.width * scale
-    const drawnH = source.height * scale
-    const offX = (rect.width - drawnW) / 2
-    const offY = (rect.height - drawnH) / 2
-    const px = Math.floor(((e.clientX - rect.left - offX) / drawnW) * source.width)
-    const py = Math.floor(((e.clientY - rect.top - offY) / drawnH) * source.height)
-    if (px < 0 || py < 0 || px >= source.width || py >= source.height) {
-      // out of image bounds: ignore (do not call)
-      return
-    }
+    const instance = zoomRef.current?.instance
+    const wrapper = instance?.wrapperComponent
+    const t = instance?.state
+    if (!wrapper || !t) return
+    const rect = wrapper.getBoundingClientRect()
+    const px = clientToSourcePixel({
+      clientX: e.clientX,
+      clientY: e.clientY,
+      rectLeft: rect.left,
+      rectTop: rect.top,
+      positionX: t.positionX,
+      positionY: t.positionY,
+      scale: t.scale,
+      width: source.width,
+      height: source.height,
+    })
+    if (!px) return
     // Sampling uses the ORIGINAL source.image, not the dithered output.
-    const i = (py * source.width + px) * 4
+    const i = (px.y * source.width + px.x) * 4
     const d = source.image.data
     applyEyedropper([d[i] / 255, d[i + 1] / 255, d[i + 2] / 255])
   }
@@ -148,19 +243,40 @@ export function Viewport({ onReady }: ViewportProps) {
 
   return (
     <div
-      className="relative flex h-full w-full items-center justify-center overflow-hidden p-4"
+      ref={containerRef}
+      className="relative h-full w-full overflow-hidden"
       style={{
-        backgroundImage:
-          'repeating-conic-gradient(#00000010 0% 25%, transparent 0% 50%)',
+        backgroundImage: 'repeating-conic-gradient(#00000010 0% 25%, transparent 0% 50%)',
         backgroundSize: '20px 20px',
       }}
     >
-      <canvas
-        ref={canvasRef}
-        onClick={onCanvasClick}
-        className="max-h-full max-w-full object-contain shadow-sm"
-        style={{ imageRendering: 'auto', cursor: eyedropper ? 'crosshair' : undefined }}
-      />
+      <TransformWrapper
+        ref={zoomRef}
+        minScale={fitScale}
+        maxScale={Math.max(fitScale, 1) * 20}
+        limitToBounds
+        centerZoomedOut
+        doubleClick={{ disabled: true }}
+        wheel={{ step: 0.15 }}
+        panning={{ velocityDisabled: true }}
+        onTransform={(_, state) => {
+          onZoomChange?.(state.scale)
+          // Imperative style poke (no React state) so zooming never re-runs the
+          // rAF render effect: crisp pixels when magnified past natural size,
+          // smooth resampling when fit/shrunk below it.
+          const canvas = canvasRef.current
+          if (canvas) canvas.style.imageRendering = state.scale > 1 ? 'pixelated' : 'auto'
+        }}
+      >
+        <TransformComponent wrapperClass="!h-full !w-full">
+          <canvas
+            ref={canvasRef}
+            onClick={onCanvasClick}
+            className="shadow-sm"
+            style={{ cursor: eyedropper ? 'crosshair' : undefined }}
+          />
+        </TransformComponent>
+      </TransformWrapper>
       <ProcessingOverlay show={rendering} />
     </div>
   )

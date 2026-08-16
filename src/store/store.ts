@@ -1,8 +1,11 @@
 import { createStore } from 'zustand/vanilla'
 import { useStore as useZustand } from 'zustand'
+import { temporal } from 'zundo'
+import type { TemporalState } from 'zundo'
 import type { StackNode } from '@/engine/planPasses'
 import type { Palette, ParamValue } from '@/effects/types'
 import type { Preset } from '@/features/preset'
+import { loadPanelPrefs, savePanelPrefs, type PanelPrefs } from '@/features/uiPrefs'
 import { registry } from '@/effects/registry'
 import { PALETTES } from '@/color/palettes'
 import { loadCustomPalettes, saveCustomPalettes } from '@/features/paletteStorage'
@@ -19,6 +22,9 @@ export interface AppState {
   selectedId: string | null
   palettes: Record<string, Palette>
   eyedropper: { paletteId: string; index: number } | null
+  panels: PanelPrefs
+  addMenuOpen: boolean
+  helpOpen: boolean
   setSource: (source: SourceImage) => void
   addNode: (type: string) => void
   removeNode: (id: string) => void
@@ -27,6 +33,10 @@ export interface AppState {
   duplicateNode: (id: string) => void
   updateParam: (id: string, key: string, value: ParamValue) => void
   selectNode: (id: string | null) => void
+  togglePanel: (side: 'left' | 'right') => void
+  setPanelCollapsed: (side: 'left' | 'right', collapsed: boolean) => void
+  setAddMenuOpen: (v: boolean) => void
+  setHelpOpen: (v: boolean) => void
   addPalette: () => string
   updatePalette: (id: string, patch: { name?: string; colors?: [number, number, number][] }) => void
   removePalette: (id: string) => void
@@ -36,6 +46,8 @@ export interface AppState {
   applyEyedropper: (rgb: [number, number, number]) => void
   loadPreset: (preset: Preset) => void
 }
+
+type HistorySlice = Pick<AppState, 'stack' | 'palettes'>
 
 const newId = () => crypto.randomUUID()
 
@@ -53,12 +65,17 @@ function nextCustomName(palettes: Record<string, Palette>): string {
 }
 
 export function createAppStore() {
-  return createStore<AppState>((set, get) => ({
+  return createStore<AppState>()(
+    temporal(
+      (set, get) => ({
     source: null,
     stack: [],
     selectedId: null,
     palettes: loadInitialPalettes(),
     eyedropper: null,
+    panels: loadPanelPrefs(),
+    addMenuOpen: false,
+    helpOpen: false,
 
     setSource: (source) => set({ source }),
 
@@ -116,6 +133,13 @@ export function createAppStore() {
       })),
 
     selectNode: (id) => set({ selectedId: id }),
+
+    togglePanel: (side) =>
+      set((s) => ({ panels: { ...s.panels, [side]: !s.panels[side] } })),
+    setPanelCollapsed: (side, collapsed) =>
+      set((s) => ({ panels: { ...s.panels, [side]: collapsed } })),
+    setAddMenuOpen: (v) => set({ addMenuOpen: v }),
+    setHelpOpen: (v) => set({ helpOpen: v }),
 
     addPalette: () => {
       const id = newId()
@@ -182,7 +206,32 @@ export function createAppStore() {
         const stack = preset.stack.map((n) => ({ ...n, params: { ...n.params } }))
         return { palettes, stack, selectedId: stack[0]?.id ?? null }
       }),
-  }))
+      }),
+      {
+        partialize: (s): HistorySlice => ({ stack: s.stack, palettes: s.palettes }),
+        limit: 100,
+        // Skip recording when neither stack nor palettes changed (e.g. selection,
+        // eyedropper, panel toggles). References are always fresh on real edits.
+        equality: (a, b) => a.stack === b.stack && a.palettes === b.palettes,
+        // Coalesce a burst of rapid edits (slider drag, hex typing) into ONE undo
+        // step: capture the state before the burst began, then commit once the
+        // edits go idle for 400ms.
+        handleSet: (handleSet) => {
+          let timer: ReturnType<typeof setTimeout> | undefined
+          let firstPrev: HistorySlice | undefined
+          return (pastState) => {
+            firstPrev ??= pastState as HistorySlice
+            clearTimeout(timer)
+            timer = setTimeout(() => {
+              if (firstPrev) handleSet(firstPrev)
+              firstPrev = undefined
+              timer = undefined
+            }, 400)
+          }
+        },
+      },
+    ),
+  )
 }
 
 export const appStore = createAppStore()
@@ -196,4 +245,13 @@ appStore.subscribe((s) => {
   saveCustomPalettes(Object.values(s.palettes).filter((p) => !(p.id in PALETTES)))
 })
 
+let lastPanels = appStore.getState().panels
+appStore.subscribe((s) => {
+  if (s.panels === lastPanels) return
+  lastPanels = s.panels
+  savePanelPrefs(s.panels)
+})
+
 export const useStore = <T>(selector: (s: AppState) => T): T => useZustand(appStore, selector)
+export const useTemporal = <T>(selector: (s: TemporalState<HistorySlice>) => T): T =>
+  useZustand(appStore.temporal, selector)

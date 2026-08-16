@@ -120,6 +120,8 @@ export function StackPanel() {
   const reorderNode = useStore((s) => s.reorderNode)
   const duplicateNode = useStore((s) => s.duplicateNode)
   const selectNode = useStore((s) => s.selectNode)
+  const addMenuOpen = useStore((s) => s.addMenuOpen)
+  const setAddMenuOpen = useStore((s) => s.setAddMenuOpen)
 
   const sensors = useSensors(
     // A small activation distance lets a plain click on the handle still select/act
@@ -145,7 +147,7 @@ export function StackPanel() {
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Effects
         </span>
-        <DropdownMenu>
+        <DropdownMenu open={addMenuOpen} onOpenChange={setAddMenuOpen}>
           <DropdownMenuTrigger
             render={
               <Button size="sm" variant="outline">
