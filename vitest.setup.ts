@@ -14,3 +14,19 @@ globalThis.ResizeObserver = globalThis.ResizeObserver ?? (ResizeObserver as any)
 if (!Element.prototype.getAnimations) {
   Element.prototype.getAnimations = () => []
 }
+
+// jsdom does not implement window.matchMedia, which next-themes' ThemeProvider
+// (system-theme detection) calls at mount time.
+if (!window.matchMedia) {
+  window.matchMedia = (query: string) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList
+}

@@ -35,7 +35,7 @@ the fixture isolates the matrix change) to close that gap.
 ## Regenerating
 
 ```
-VITE_UPDATE_GOLDENS=1 npm run test:browser
+VITE_UPDATE_GOLDENS=1 pnpm test:browser
 ```
 
 This overwrites every golden with fresh output. Only do this deliberately — see the
@@ -117,7 +117,7 @@ Practical implications:
 
 Linux CI runners typically render via SwiftShader or Mesa software/virtual GPU paths,
 which will not reproduce macOS ANGLE/Metal output at the pixel level. Wiring
-`npm run test:browser` into CI as-is today would produce a red suite on every run, not
+`pnpm test:browser` into CI as-is today would produce a red suite on every run, not
 useful signal. Doing this properly later needs a pinned container image with a
 consistent GPU/driver stack, and probably per-effect tolerances (see `perChannel`
 above) rather than one global `MAX_DIFF_FRACTION`.

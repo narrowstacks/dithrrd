@@ -65,7 +65,7 @@ export async function assertGolden(
   const res = await fetch(`/fixtures/${name}.png`)
   if (!res.ok) {
     throw new Error(
-      `missing golden "${name}". Regenerate with: VITE_UPDATE_GOLDENS=1 npm run test:browser`,
+      `missing golden "${name}". Regenerate with: VITE_UPDATE_GOLDENS=1 pnpm test:browser`,
     )
   }
   const golden = await decodePng(new Uint8Array(await res.arrayBuffer()))

@@ -59,3 +59,14 @@ it('shows zoom percent and triggers fit + help', async () => {
   await user.click(screen.getByRole('button', { name: /keyboard shortcuts/i }))
   expect(onShowHelp).toHaveBeenCalled()
 })
+
+it('renders the appearance control and a GitHub repository link', () => {
+  render(
+    <Toolbar onUpload={noop} onReset={noop} onExport={noop} canExport={false} zoomPct={100} onZoomFit={noop} onShowHelp={noop} />,
+  )
+  expect(screen.getByRole('button', { name: /appearance settings/i })).toBeInTheDocument()
+  const githubLink = screen.getByRole('link', { name: /github repository/i })
+  expect(githubLink).toHaveAttribute('href', 'https://github.com/narrowstacks/dithrrd')
+  expect(githubLink).toHaveAttribute('target', '_blank')
+  expect(githubLink).toHaveAttribute('rel', 'noreferrer noopener')
+})
