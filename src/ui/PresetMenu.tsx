@@ -36,7 +36,15 @@ export function PresetMenu() {
   }
 
   const onShare = () => {
-    const url = `${window.location.origin}${window.location.pathname}?p=${encodePresetParam(current())}`
+    let url: string
+    try {
+      // Not every preset the app can hold fits the short-link format — an
+      // imported preset can carry a palette with no colors, for one.
+      url = `${window.location.origin}${window.location.pathname}?p=${encodePresetParam(current())}`
+    } catch {
+      toast.error('Could not create a share link for this preset')
+      return
+    }
     navigator.clipboard?.writeText(url).then(
       () => toast.success('Share link copied'),
       () => toast.error('Could not copy link'),
