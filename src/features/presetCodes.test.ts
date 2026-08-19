@@ -42,6 +42,39 @@ describe('share-link effect codes', () => {
   })
 })
 
+describe('share-link param order', () => {
+  // Params ride the wire by POSITION, so the key order of each effect's
+  // defaultParams is as load-bearing as the effect codes above. Appending a new
+  // key is safe — older links simply stop short and keep the defaults. Inserting,
+  // reordering or removing a key silently re-points every value in every link
+  // already shared: `2~gr-0.12-1.35--0.8` would decode 0.12 into whatever key
+  // now sits first. This test makes that a deliberate choice rather than a
+  // side effect of editing an effect.
+  it('holds every published param order unchanged, allowing only appends', () => {
+    const order = Object.fromEntries(
+      EFFECT_LIST.map((e) => [e.type, Object.keys(e.defaultParams)]),
+    )
+    expect(order).toEqual({
+      grade: ['brightness', 'contrast', 'gamma', 'saturation'],
+      pixelate: ['pixelSize', 'levels', 'sampling', 'dither'],
+      bayer: ['matrix', 'levels'],
+      halftone: ['cellSize', 'angle'],
+      palette: ['paletteId'],
+      floyd: ['levels', 'serpentine'],
+      atkinson: ['levels', 'serpentine'],
+      jarvis: ['levels', 'serpentine'],
+      stucki: ['levels', 'serpentine'],
+      sierra: ['levels', 'serpentine'],
+      burkes: ['levels', 'serpentine'],
+      clusteredDot: ['levels'],
+      lineScreen: ['cellSize', 'angle'],
+      crosshatch: ['cellSize', 'angle'],
+      duotone: ['paletteId'],
+      perChannel: ['levels', 'angle', 'scale'],
+    })
+  })
+})
+
 describe('built-in palette ids', () => {
   // A node's palette param holds either a built-in id or a bare decimal index
   // into the link's custom palettes. An all-digit built-in id would be

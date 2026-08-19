@@ -31,10 +31,14 @@ function escText(s: string): string {
   return out
 }
 
-/** Compact decimal, with `-` swapped for `n` so it can't be read as a delimiter. */
+/**
+ * Compact decimal, with `-` swapped for `n` so it can't be read as a delimiter.
+ * The `+` of exponential notation (`String(1e21)` is `'1e+21'`) is dropped —
+ * a query string decodes `+` as a space, which would break the link.
+ */
 function encodeNumber(n: number): string {
   if (!Number.isFinite(n)) throw new Error(`cannot encode non-finite number: ${n}`)
-  return String(n).replace(/-/g, 'n')
+  return String(n).replace(/-/g, 'n').replace(/\+/g, '')
 }
 
 function encodeValue(value: ParamValue): string {

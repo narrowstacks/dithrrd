@@ -5,6 +5,7 @@ import { PresetMenu } from '@/ui/PresetMenu'
 import { appStore } from '@/store/store'
 import { loadNamedPresets } from '@/features/presetStorage'
 import { decodePresetParam } from '@/features/presetUrl'
+import { toast } from 'sonner'
 
 function reset() {
   localStorage.clear()
@@ -51,6 +52,26 @@ describe('PresetMenu', () => {
     const url = writeText.mock.calls[0][0] as string
     const param = new URL(url).searchParams.get('p')!
     expect(decodePresetParam(param).stack[0].type).toBe('bayer')
+  })
+
+  it('reports an error instead of throwing when the preset cannot be encoded', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    // An imported preset JSON may carry a palette with no colors, which the
+    // short-link format cannot represent.
+    appStore.getState().loadPreset({
+      v: 1,
+      stack: [{ id: 'a', type: 'palette', enabled: true, params: { paletteId: 'c1' } }],
+      palettes: [{ id: 'c1', name: 'Empty', colors: [] }],
+    })
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    render(<PresetMenu />)
+    await user.click(screen.getByRole('button', { name: /presets/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /share link/i }))
+    expect(writeText).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledWith(expect.stringMatching(/share link/i))
+    error.mockRestore()
   })
 
   it('imports a preset file even though the menu closes on click', async () => {

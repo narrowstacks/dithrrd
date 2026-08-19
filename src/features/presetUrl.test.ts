@@ -204,6 +204,22 @@ describe('preset URL length and URL-safety', () => {
     expect(readBack).toBe(param)
   })
 
+  it('survives a query-string round-trip for a number big enough to go exponential', () => {
+    // String(1e21) is '1e+21', and URLSearchParams decodes '+' as a space.
+    const preset: Preset = {
+      v: 1,
+      stack: [{
+        id: 'n', type: 'grade', enabled: true,
+        params: { brightness: 1e21, contrast: 1, gamma: 1, saturation: 1 },
+      }],
+      palettes: [],
+    }
+    const param = encodePresetParam(preset)
+    expect(param).toMatch(/^[A-Za-z0-9._~-]+$/)
+    expect(new URLSearchParams(`p=${param}`).get('p')).toBe(param)
+    expect(decodePresetParam(param).stack[0].params.brightness).toBe(1e21)
+  })
+
   it('survives a query-string round-trip even with a name full of delimiters', () => {
     const preset: Preset = {
       v: 1,
