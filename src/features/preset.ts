@@ -8,7 +8,7 @@ export interface Preset {
   palettes: Palette[]
 }
 
-const PRESET_VERSION = 1
+export const PRESET_VERSION = 1
 
 export function buildPreset(stack: StackNode[], palettes: Record<string, Palette>): Preset {
   const referenced = new Set<string>()
